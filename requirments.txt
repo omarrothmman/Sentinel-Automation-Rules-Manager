@@ -1,4 +1,0 @@
-azure.mgmt.securityinsight
-azure.identity
-pandas
-openpyxl

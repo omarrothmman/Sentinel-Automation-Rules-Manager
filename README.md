@@ -1,438 +1,594 @@
-<div align="center">
-<img alt="..." src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white">
-<img alt="..." src="https://img.shields.io/badge/python-3.11-blue?style=for-the-badge">
+# Microsoft Sentinel Automation Rules Manager
 
-<a href="https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm/issues">
-  <img alt="..." src="https://img.shields.io/github/issues/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm.svg?style=for-the-badge">
-</a>
+[![CI](https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/actions/workflows/ci.yml)
 
-<!--
-<a href="https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm/graphs/contributors">
-  <img alt="GitHub forks" src="https://img.shields.io/github/contributors/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm.svg?style=for-the-badge">
-</a>
--->
+A production-focused command-line tool for managing Microsoft Sentinel automation rules across
+one or many workspaces, including customer environments delegated through Azure Lighthouse.
 
-<a href="https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm/network/members">
-  <img alt="GitHub forks" src="https://img.shields.io/github/forks/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm?style=for-the-badge">
-</a>
+The tool modifies rules that already exist, deploys new rules, and keeps every Azure change behind
+a reviewable plan. It is designed for repeated operational changes such as adding the same incident
+title to a closure rule across dozens of Sentinel workspaces.
 
-<a href="https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm/stargazers">
-  <img alt="..." src="https://img.shields.io/github/stars/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm.svg?style=for-the-badge">
-</a>
+## Key capabilities
 
-<a href="https://github.com/o54ma-4l5h4r1f?tab=followers">
-  <img alt="..." src="https://img.shields.io/github/followers/o54ma-4l5h4r1f?style=for-the-badge">
-</a>
+- Discover accessible Microsoft Sentinel workspaces automatically.
+- Work across direct subscriptions and Azure Lighthouse delegations.
+- Add or remove incident-title values without replacing existing customer values.
+- Add or remove automation-rule conditions.
+- Enable or disable existing automation rules.
+- Deploy new rules from JSON or a Sentinel-exported ARM template.
+- Target one workspace, several workspaces, a tagged group, or every enabled workspace.
+- Preview every change before writing to Azure.
+- Detect rules that are already correct or missing from selected workspaces.
+- Protect changes with integrity checks, backups, post-write verification, and rollback support.
 
-<a href="https://www.linkedin.com/in/osama-alsharif-21153716a">
-  <img alt="..." src="https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555">
-</a>
+## How changes are handled
 
-</div>
+The normal workflow has two separate stages:
 
-  <h3 align="center">Sentinel-Analytic-Rules-Mgm</h3>
-  <h5 align="center">Microsoft Sentinel Analytic Rules Management &amp; Assessment tool</h5>
+1. `plan` reads the current rules and creates an integrity-protected JSON plan. It does not modify
+   Azure.
+2. `apply` reviews the live rule again, creates a backup, performs the planned write, and verifies
+   the result.
 
-<!-- PROJECT LOGO -->
-<p align="center">
-  <a href="#"><pre align="center">
-      ___           ___           ___       ___           ___     
-     /\  \         /\__\         /\__\     /\  \         /\  \    
-    /::\  \       /:/  /        /:/  /    /::\  \       /::\  \   
-   /:/\:\  \     /:/  /        /:/  /    /:/\:\  \     /:/\ \  \  
-  /::\~\:\  \   /:/  /  ___   /:/  /    /::\~\:\  \   _\:\~\ \  \ 
- /:/\:\ \:\__\ /:/__/  /\__\ /:/__/    /:/\:\ \:\__\ /\ \:\ \ \__\
- \/_|::\/:/  / \:\  \ /:/  / \:\  \    \:\~\:\ \/__/ \:\ \:\ \/__/
-    |:|::/  /   \:\  /:/  /   \:\  \    \:\ \:\__\    \:\ \:\__\  
-    |:|\/__/     \:\/:/  /     \:\  \    \:\ \/__/     \:\/:/  /  
-    |:|  |        \::/  /       \:\__\    \:\__\        \::/  /   
-     \|__|         \/__/         \/__/     \/__/         \/__/    
-  </pre></a>
+This makes a plan safe to use as an audit. For example, `plan add-title` reports where a title is
+already present, where it is missing, and where the selected rule does not exist. Nothing changes
+until the generated plan is explicitly applied.
 
+## Requirements
 
-</p>
+- Windows PowerShell or PowerShell 7
+- Python 3.10 or newer
+- An Azure account with permission to read or manage the selected Sentinel automation rules
+- Azure Lighthouse delegation for customer subscriptions managed from another tenant
 
-## :star2: About the Tool
+A service principal is not required for interactive use.
 
-Sentinel-Analytic-Rules-Mgm is a tool designed for managing and assessing Microsoft Sentinel Analytic Rules across multiple tenants' workspaces seamlessly. Developed using Azure SDK for Python. This script streamlines the process of performing various actions on analytic rules while utilizing a single set of authentication credentials. Its functionality enables users to execute actions on a set of selected analytic rules, optimizing the management of them.
+## Installation
 
-### Key Features:
-#### :one: Tenant Selection:
-Allows users to specify the tenants whose analytic rules they intend to target, ensuring focused and efficient rule management.
+Open PowerShell in the repository folder:
 
-#### :two: Rule Selection: 
-Enables users to select analytic rules either by their names or a partial match, facilitating flexible and precise rule targeting.
-
-#### :three: Actionable Operations:
-- _**Listing**_: Provides the ability to list selected rules to view their IDs.
-  
-- _**Updating**_:
-  - _**Manually**_: Users have the ability to update the selected rules manually, choosing from various options to tailor the rules' configurations, such as:
-    - **Display Name**: Modify the display name of the selected rules. including options to update the entire name or parts of it by adding prefixes or suffixes, as well as removing them.
-    - **Description**: Update the description of the rules.
-    - **Severity**: Adjust the severity level of the rules to reflect the importance of the detections.
-    - **Enable/Disable**: Toggle the enabled/disabled status of the rules to control their activation and enforcement.
-    - **KQL Query**: Enhance rule tuning by updating the KQL query of the rules, refining their logic for improved detection accuracy.
-
-  - _**Copy and Apply Properties**_: Rather than manually adjusting each property individually, users can make detailed updates to one rule using the Azure Sentinel portal and seamlessly propagate these changes across all other selected rules using the script, streamlining the update process while ensuring consistency and accuracy across the board
-- _**Replication**_:  allows users to selectively replicate chosen rule only in tenants' workspaces where they are not exist.
-- _**Comparison**_: Offers functionality to compare the existence of analytic rules across different tenants' workspaces, assisting in maintaining uniformity and identifying discrepancies.
-
-
-:low_brightness: there's room for adding more features to the tool. I'm open to hearing your suggestions and seeing your contributions to make it even better.
-
-<!-- Getting Started -->
-
-
-
-## :computer: Getting Started
-
-> [!NOTE]  
-> This script can run on a Windows machine for now, so make sure that python & git are installed. 
-
-Install the Azure Developer CLI [Link](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd?tabs=winget-windows%2Cbrew-mac%2Cscript-linux&pivots=os-windows)
-```bash
-> winget install microsoft.azd
-```
-
-On powershell
-
-```bash
-# Clone the project
-> git clone https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm.git
-
-# Go to the project directory
-> cd Sentinel-Analytic-Rules-Mgm
-
-# Install the requirements
-> pip install -r requirments.txt
-# OR
-> python3.10 -m pip install -r .\requirments.txt
-```
-And make sure to restart the powershell terminal after the installation ends
-
-## 🩹 Update DataBase.json file
-To access related resources, you'll need to update the `DataBase.json` file with your specific information. Follow these steps:
-
-1. Open the `DataBase.json` file located in the root directory of this repository.
-
-2. Add a new entry or update an existing one following the JSON template below:
-
-```json
-{
-    "1" : {
-        "tenant_name" : "Display Name",
-        "subscription_id" : "5cfeafdb-fc6b-xxxx-xxxx-xxxxxxxxxxxx",
-        "resource_group_name" : "Resourse Group",
-        "workspace_name" : "WorkSpace Name"
-    },
-    "2" : {
-        "tenant_name" : "Display Name 2",
-        "subscription_id" : "7a3cafdb-fc6b-xxxx-xxxx-xxxxxxxxxxxx",
-        "resource_group_name" : "Resourse Group 2",
-        "workspace_name" : "WorkSpace Name 2"
-    }
-}
-```
-3. Save the changes to the file.
-   
-## :jack_o_lantern: Lets Run It
 ```powershell
-> python3 .\main.py
-```
-```        
-
-      ___           ___           ___       ___           ___     
-     /\  \         /\__\         /\__\     /\  \         /\  \    
-    /::\  \       /:/  /        /:/  /    /::\  \       /::\  \   
-   /:/\:\  \     /:/  /        /:/  /    /:/\:\  \     /:/\ \  \  
-  /::\~\:\  \   /:/  /  ___   /:/  /    /::\~\:\  \   _\:\~\ \  \ 
- /:/\:\ \:\__\ /:/__/  /\__\ /:/__/    /:/\:\ \:\__\ /\ \:\ \ \__\
- \/_|::\/:/  / \:\  \ /:/  / \:\  \    \:\~\:\ \/__/ \:\ \:\ \/__/
-    |:|::/  /   \:\  /:/  /   \:\  \    \:\ \:\__\    \:\ \:\__\  
-    |:|\/__/     \:\/:/  /     \:\  \    \:\ \/__/     \:\/:/  /  
-    |:|  |        \::/  /       \:\__\    \:\__\        \::/  /   
-     \|__|         \/__/         \/__/     \/__/         \/__/     
-
-
-
-    Welcome to the Analytic Rules Management & Assessment tool
-
-
-Authenticatiion setup:
-
-1) Login to Azure
-2) Relogin to Azure
-3) Logout from Azure
-
-```
-A browser tab will open, allowing you to log in with the appropriate account. If you're already logged in, this step will be skipped.
-```
->>> 1
-[+] Already Logged into Azure.
-
-Which tenants workspaces are you going to work on:
-[EX1] 1,2,3,4,5,...
-[EX2] 1-3,6-7,9,...
-[NOTE] You can update the tenants list by modifying the 'DataBase.json' file
-1 ) Company-1           2 ) Company-2           3 ) Company-3
-4 ) Company-4           5 ) Company-5           6 ) Company-6
-7 ) Company-7           8 ) Company-8           9 ) ...
->>>
-```
-The list of tenants displayed will be determined by the information you've provided in the DataBase.json file.
-```
->>> 1-4
-[+] The selected tenants : 1,2,3,4
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
+git clone https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager.git
+cd Sentinel-Analytic-Rules-Mgm
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
 ```
 
+Confirm that the CLI is installed:
 
-Selecting analytic rules that containes `DEV` in their names
-
-> [!NOTE]  
-> The script does not currently support NRT anallytic rules.
-
-```
->>> 1
-
-1) Select Rules By Name
-
->>> 1
-Rule Name (or part of it) > DEV
-[+] looking into client #1 (Company-1)
-[+] A total of 1 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------
-[+] looking into client #2 (Company-2)
-[+] A total of 302 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-[DEV] | Pulse Connect Secure VPN-CVE_2021_22893_Exploit
-[DEV] | Known Malware Detected
-[DEV] | Shadow Copy Deletion
-----------------------------------------------------------------------------------------------------
-[+] looking into client #3 (Company-3)
-[+] A total of 260 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-User Login from Different Countries Within 3 Hours [DEV]
-Suspicious Url Clicked [DEV]
-----------------------------------------------------------------------------------------------------
-[+] looking into client #4 (Company-4)
-[+] A total of 335 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-[DEV] Anomalous Sign-in Detected by a User
-[DEV] User Login from Different Countries Within 3 Hours
-[DEV] Suspicious Url Clicked
-----------------------------------------------------------------------------------------------------
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
-```
-List the selected rules 
-```
->>> 2
-
-The selected rules
-----------------------------------------------------------------------------------------------------
-Company-2               d8dcfbbb-e914-4622-a96e-68907d61c9f9    [DEV] | Pulse Connect Secure VPN-CVE_2021_22893_Exploit
-Company-2               9d15b6b7-3289-48a0-b7d2-f72266277ddd    [DEV] | Known Malware Detected
-Company-2               5759e9ec-df80-4cd2-82bd-083d796bbd30    [DEV] | Shadow Copy Deletion
-Company-3               42718c04-51b3-4b7f-8511-0c19252ea44b    User Login from Different Countries Within 3 Hours [DEV]
-Company-3               28810579-a6d6-4e13-aecb-396941cfa5dd    Suspicious Url Clicked [DEV]
-Company-4               224b8b16-0de2-4bd7-8da1-4b7d578de58b    [DEV] Anomalous Sign-in Detected by a User
-Company-4               80255886-e3b8-495e-88d3-05f1c571aada    [DEV] User Login from Different Countries Within 3 Hours      
-Company-4               28910579-a6d6-4e13-aecb-396941cfa5dd    [DEV] Suspicious Url Clicked
-----------------------------------------------------------------------------------------------------
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
-```
-Update the selected rules manually
-```
->>> 3
-
-Choose the update method : 
-1) Update from an Existing Rule                 2) from a JSON file
-3) Manually
-
->>> 3
-
-What to update : 
-1) Enable               2) Disable              3) Display Name
-4) Description          5) Severity             6) KQL Query
-
->>> 1
-Are you sure you want to enable all the selected rules [Y/n] ? Y
-Enabling the rule (d8dcfbbb-e914-4622-a96e-68907d61c9f9)
-Enabling the rule (9d15b6b7-3289-48a0-b7d2-f72266277ddd)
-Enabling the rule (5759e9ec-df80-4cd2-82bd-083d796bbd30)
-Enabling the rule (42718c04-51b3-4b7f-8511-0c19252ea44b)
-Enabling the rule (28810579-a6d6-4e13-aecb-396941cfa5dd)
-Enabling the rule (224b8b16-0de2-4bd7-8da1-4b7d578de58b)
-Enabling the rule (80255886-e3b8-495e-88d3-05f1c571aada)
-Enabling the rule (28910579-a6d6-4e13-aecb-396941cfa5dd)
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
+```powershell
+sentinel-auto --help
+sentinel-auto --version
 ```
 
-Updating the selected rules using one of them after editing it using sentinel.  
+When returning to the project later, activate the existing environment:
 
-<img width="874" alt="image" src="https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm/assets/90612145/e7510d62-ac8f-4e74-9130-34d258f05092">
-
-
-> [!WARNING]  
-> Ensure that you select one rule from each tenant to avoid overwriting multiple rules with the same one in the same workspace, which could lead to errors.
-
+```powershell
+cd C:\Users\YourName\Downloads\Sentinel-Analytic-Rules-Mgm
+.\.venv\Scripts\Activate.ps1
 ```
->>> 1
 
-1) Select Rules By Name
+## Authentication
 
->>> 1
-Rule Name (or part of it) > User Login from Different Countries Within 3 Hours
-[+] looking into client #1 (Company-1)
-[+] A total of 1 rules found
+Interactive browser authentication is the default:
 
-The matched rules
-----------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------
-[+] looking into client #2 (Company-2)
-[+] A total of 302 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------
-[+] looking into client #3 (Company-3)
-[+] A total of 260 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-User Login from Different Countries Within 3 Hours [DEV]
-----------------------------------------------------------------------------------------------------
-[+] looking into client #4 (Company-4)
-[+] A total of 335 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-[DEV] User Login from Different Countries Within 3 Hours
-----------------------------------------------------------------------------------------------------
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
-
->>> 2
-
-The selected rules
-----------------------------------------------------------------------------------------------------
-Company-3               42718c04-51b3-4b7f-8511-0c19252ea44b    User Login from Different Countries Within 3 Hours [DEV]      
-Company-4               80255886-e3b8-495e-88d3-05f1c571aada    [DEV] User Login from Different Countries Within 3 Hours      
-----------------------------------------------------------------------------------------------------
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
-
->>> 3
-
-Choose the update method : 
-1) Update from an Existing Rule                 2) from a JSON file
-3) Manually
-
->>> 1
-rule ID >>> 42718c04-51b3-4b7f-8511-0c19252ea44b
-Are you sure you want to update all the selected rules with this one [Y/n] ? Y
-Copying The rule from Company-3
-Updating the rule on Company-4 rule
-
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
+```powershell
+sentinel-auto login
 ```
-If you tried to select the rules again you will notice they now have the same display name, and the same properties.
+
+The tool opens Microsoft's sign-in page and receives the Azure token through a temporary localhost
+callback. Microsoft Entra ID remains responsible for passwords, MFA, Conditional Access, and
+session validation. The tool never receives or stores your password or MFA secret.
+
+Other supported authentication modes are:
+
+```powershell
+sentinel-auto --auth cli login
+sentinel-auto --auth default login
 ```
->>> 1
 
-1) Select Rules By Name
+`cli` uses an existing Azure CLI session. `default` uses the Azure Identity default credential
+chain. Global options such as `--auth` must appear before the command name.
 
->>> 1
-Rule Name (or part of it) > User Login from Different Countries Within 3 Hours
-[+] looking into client #1 (Company-1)
-[+] A total of 1 rules found
+## Discover Sentinel workspaces
 
-The matched rules
-----------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------
-[+] looking into client #2 (Company-2)
-[+] A total of 302 rules found
+Preview all accessible Sentinel workspaces:
 
-The matched rules
-----------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------
-[+] looking into client #3 (Company-3)
-[+] A total of 260 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-User Login from Different Countries Within 3 Hours [DEV]
-----------------------------------------------------------------------------------------------------
-[+] looking into client #4 (Company-4)
-[+] A total of 335 rules found
-
-The matched rules
-----------------------------------------------------------------------------------------------------
-User Login from Different Countries Within 3 Hours [DEV]
-----------------------------------------------------------------------------------------------------
+```powershell
+sentinel-auto discover
 ```
-In the same way, you can create the rules if they are missing in the other tenants using the 5th option. 
 
-And finally if you wanted to compare the existence of analytic rules across different selected tenants
+Save the discovered workspaces to `config/workspaces.json`:
+
+```powershell
+sentinel-auto discover --save
 ```
->>> 4   
 
-1) Exporting into an excel sheet
+Useful discovery options:
 
->>> 1
-[+] dumping the client #1 (Company-1) rules
-[+] A total of 1 rules found
-[+] dumping the client #2 (Company-2) rules
-[+] A total of 302 rules found
-[+] dumping the client #3 (Company-3) rules
-[+] A total of 260 rules found
-[+] dumping the client #4 (Company-4) rules
-[+] A total of 335 rules found
-[+] Excel file created successfully.
+```powershell
+# Save without an interactive confirmation
+sentinel-auto discover --save --yes
 
-Choose the action:
-1) Select Rules         2) List Selected Rules
-3) Update Rules         4) Rules Comparison/Assessment
-5) Create Rules         6) help
+# Search only one subscription
+sentinel-auto discover --subscription "00000000-0000-0000-0000-000000000000"
+
+# Search several subscriptions
+sentinel-auto discover `
+  --subscription "00000000-0000-0000-0000-000000000000" `
+  --subscription "11111111-1111-1111-1111-111111111111"
+
+# Explicitly select the managing tenant
+sentinel-auto discover `
+  --tenant-id "22222222-2222-2222-2222-222222222222" `
+  --save
 ```
-this will generate an excel sheet named comparison.xlsx as shown below
 
-<img width="70%" alt="image" src="https://github.com/o54ma-4l5h4r1f/Sentinel-Analytic-Rules-Mgm/assets/90612145/1e5b8b39-e579-4d70-a14e-eaf759c6ca39">
+Discovery merges new results into the existing inventory by default. To replace the inventory and
+remove entries that are no longer discovered, use:
 
-You can keep going and discovere new featues from here.
-Good luck ^^ 
+```powershell
+sentinel-auto discover --save --replace
+```
+
+Review `--replace` carefully because it intentionally removes stale inventory entries. The previous
+inventory is backed up before a saved update.
+
+## Target workspaces
+
+List the saved workspace keys:
+
+```powershell
+sentinel-auto list-targets
+```
+
+Commands that accept `--targets` can select:
+
+```powershell
+# One workspace key
+--targets customer-a
+
+# Several workspace keys
+--targets "customer-a,customer-b,customer-c"
+
+# A tag defined in the inventory
+--targets production
+
+# Every enabled workspace
+--targets all
+```
+
+## List automation rules
+
+```powershell
+# All enabled workspaces
+sentinel-auto list-rules --targets all
+
+# One workspace
+sentinel-auto list-rules --targets customer-a
+
+# Selected workspaces
+sentinel-auto list-rules --targets "customer-a,customer-b"
+```
+
+## Check or add an incident title
+
+The following command checks every selected Sentinel for the title and creates a plan to add it
+where it is missing:
+
+```powershell
+sentinel-auto plan add-title `
+  --display-name "Close Known Benign Incidents" `
+  --title "Known Benign Security Test" `
+  --targets all `
+  --skip-missing
+```
+
+The plan uses these statuses:
+
+- `ALREADY PRESENT`: the title is already configured; no change is needed.
+- `WILL CHANGE`: the rule exists and the title would be added.
+- `NOT FOUND`: the selected automation rule does not exist in that workspace.
+
+If the goal is only to check availability, stop after planning. Do not run `apply`.
+
+To target selected workspaces:
+
+```powershell
+sentinel-auto plan add-title `
+  --display-name "Close Known Benign Incidents" `
+  --title "Known Benign Security Test" `
+  --targets "customer-a,customer-b" `
+  --skip-missing
+```
+
+If a rule contains multiple matching `IncidentTitle` conditions, select the intended condition by
+its one-based position:
+
+```powershell
+sentinel-auto plan add-title `
+  --display-name "Close Known Benign Incidents" `
+  --title "Known Benign Security Test" `
+  --condition-index 2 `
+  --targets customer-a
+```
+
+## Remove an incident title
+
+```powershell
+sentinel-auto plan remove-title `
+  --display-name "Close Known Benign Incidents" `
+  --title "Retired Security Test" `
+  --targets all `
+  --skip-missing
+```
+
+The operation refuses to remove the final value from an `IncidentTitle` condition. Remove the
+condition itself when that is the intended result.
+
+## Add a condition
+
+Repeat `--value` to place several values in the same property condition:
+
+```powershell
+sentinel-auto plan add-condition `
+  --display-name "Close Known Benign Incidents" `
+  --property "IncidentTitle" `
+  --operator "Contains" `
+  --value "Known Benign Security Test" `
+  --value "Approved Vulnerability Scan" `
+  --targets all `
+  --skip-missing
+```
+
+## Remove a condition
+
+```powershell
+sentinel-auto plan remove-condition `
+  --display-name "Close Known Benign Incidents" `
+  --property "IncidentTitle" `
+  --operator "Contains" `
+  --targets all `
+  --skip-missing
+```
+
+Use `--condition-index 2` when more than one condition matches the supplied property and operator.
+
+## Enable or disable a rule
+
+Enable the selected rule:
+
+```powershell
+sentinel-auto plan set-enabled `
+  --display-name "Close Known Benign Incidents" `
+  --enabled `
+  --targets all `
+  --skip-missing
+```
+
+Disable the selected rule:
+
+```powershell
+sentinel-auto plan set-enabled `
+  --display-name "Close Known Benign Incidents" `
+  --disabled `
+  --targets all `
+  --skip-missing
+```
+
+## Select a rule by ID
+
+Existing-rule operations accept either `--display-name` or `--rule-id`, but not both:
+
+```powershell
+sentinel-auto plan add-title `
+  --rule-id "33333333-3333-3333-3333-333333333333" `
+  --title "Known Benign Security Test" `
+  --targets customer-a
+```
+
+Use `--display-name` when logically equivalent rules have different IDs across customers. Matching
+is exact and case-insensitive. The command stops if several rules have the same display name rather
+than guessing which one to modify.
+
+## Export existing rules
+
+Export a rule from selected workspaces into Git-friendly JSON files:
+
+```powershell
+sentinel-auto export `
+  --display-name "Close Known Benign Incidents" `
+  --targets "customer-a,customer-b" `
+  --output .\exports\close-known-benign-incidents
+```
+
+Export by UUID when the same ID is used across all selected workspaces:
+
+```powershell
+sentinel-auto export `
+  --rule-id "33333333-3333-3333-3333-333333333333" `
+  --targets customer-a `
+  --output .\exports\close-known-benign-incidents
+```
+
+## Deploy a new automation rule
+
+### Git-managed base-rule catalog
+
+Store reusable base automation rules in the local `rules/` directory. Importing through the CLI
+normalizes a Sentinel export, assigns it a stable logical name, and validates the entire catalog:
+
+```powershell
+sentinel-auto catalog add `
+  --name "known-benign-closure" `
+  --file "C:\Exports\known-benign-closure.json"
+```
+
+If one ARM template contains several automation rules, import the whole bundle atomically:
+
+```powershell
+sentinel-auto catalog import-bundle `
+  --file "C:\Exports\automation-rules.json"
+```
+
+Every rule is written to its own Git-friendly JSON file. If any resource is invalid or conflicts
+with the existing catalog, none of the bundle changes are kept. Use `--force` only when intentionally
+replacing matching catalog definitions.
+
+Override the exported UUID when required:
+
+```powershell
+sentinel-auto catalog add `
+  --name "known-benign-closure" `
+  --file "C:\Exports\known-benign-closure.json" `
+  --rule-id "33333333-3333-3333-3333-333333333333"
+```
+
+List or validate the stored base rules without connecting to Azure:
+
+```powershell
+sentinel-auto catalog list
+sentinel-auto catalog validate
+```
+
+Deploy every catalog rule through one reviewable plan:
+
+```powershell
+sentinel-auto plan deploy-catalog `
+  --rules all `
+  --targets all `
+  --if-exists skip
+```
+
+Deploy selected base rules to selected Sentinels:
+
+```powershell
+sentinel-auto plan deploy-catalog `
+  --rules "known-benign-closure,high-severity-assignment" `
+  --targets "customer-a,customer-b" `
+  --if-exists skip
+```
+
+The catalog rejects invalid JSON, duplicate logical names, duplicate rule UUIDs, duplicate display
+names, and unintentional overwrites. Use `catalog add --force` only when intentionally replacing an
+existing base definition. The replacement is transactional: if full-catalog validation fails, the
+previous file is restored.
+
+Catalog deployments use the same integrity checks, backups, verification, reports, and rollback as
+single-rule deployments. Because this repository is public, `rules/*.json` is ignored by default to
+prevent accidental publication of tenant IDs, resource IDs, object IDs, or email addresses. A safe
+example is available at `examples/known-benign-closure.json`.
+
+For a private catalog repository, review each normalized rule, remove customer-specific values that
+should be overlays, then remove the `rules/*.json` entry from `.gitignore`. Commit and review those
+definitions through pull requests. Never force-add an unreviewed Sentinel export to a public repo.
+
+### Deploy directly from one file
+
+Create a deployment plan from a catalog JSON file or a Sentinel-exported ARM template:
+
+```powershell
+sentinel-auto plan deploy `
+  --file .\rules\close-known-benign-incidents.json `
+  --targets all
+```
+
+Override the rule UUID from the file when necessary:
+
+```powershell
+sentinel-auto plan deploy `
+  --file .\rules\close-known-benign-incidents.json `
+  --rule-id "33333333-3333-3333-3333-333333333333" `
+  --targets all
+```
+
+Control how an existing rule with the same UUID is handled:
+
+- `--if-exists fail`: stop if different content already exists. This is the default.
+- `--if-exists skip`: leave the existing rule unchanged.
+- `--if-exists update`: plan a complete replacement with the supplied file.
+
+Example:
+
+```powershell
+sentinel-auto plan deploy `
+  --file .\rules\close-known-benign-incidents.json `
+  --targets all `
+  --if-exists skip
+```
+
+Targeted operations such as `add-title` are preferable for routine updates because they preserve
+unrelated live configuration. Use deployment updates when the file is intentionally the complete
+desired rule definition.
+
+## Save a plan to a chosen path
+
+Without `--out`, plans are written automatically under `.sentinel-automation/plans/`.
+
+```powershell
+sentinel-auto plan add-title `
+  --display-name "Close Known Benign Incidents" `
+  --title "Known Benign Security Test" `
+  --targets all `
+  --skip-missing `
+  --out .\plans\add-known-benign-title.json
+```
+
+The console shows a compact summary. The plan JSON retains the complete before-and-after details
+and an integrity hash.
+
+All list and result commands use numbered, terminal-width-aware tables. On a narrow terminal, the
+same information automatically switches to a card layout so values are not lost to wrapping.
+
+## Apply a plan
+
+After reviewing the summary and generated JSON file:
+
+```powershell
+sentinel-auto apply `
+  --plan .\.sentinel-automation\plans\PLAN_FILE.json
+```
+
+For a plan created in the default state directory, the filename alone also works:
+
+```powershell
+sentinel-auto apply --plan PLAN_FILE.json
+```
+
+The command asks for confirmation before changing Azure. For an approved non-interactive workflow:
+
+```powershell
+sentinel-auto apply `
+  --plan .\.sentinel-automation\plans\PLAN_FILE.json `
+  --yes
+```
+
+Before each write, the tool confirms that the live rule still matches the planned version. It then
+backs up the rule, performs the update with Azure concurrency protection, and verifies the final
+content. A run ID is printed when processing finishes.
+
+## Roll back an applied run
+
+Use the run ID printed by `apply`:
+
+```powershell
+sentinel-auto rollback --run "RUN_ID"
+```
+
+For an approved non-interactive rollback:
+
+```powershell
+sentinel-auto rollback --run "RUN_ID" --yes
+```
+
+If a rule was changed after the original run, rollback stops to protect the newer work. Override
+that protection only after reviewing the later changes:
+
+```powershell
+sentinel-auto rollback `
+  --run "RUN_ID" `
+  --force
+```
+
+## Command reference
+
+```text
+sentinel-auto login
+sentinel-auto --version
+sentinel-auto discover
+sentinel-auto list-targets
+sentinel-auto list-rules
+sentinel-auto export
+sentinel-auto catalog list
+sentinel-auto catalog validate
+sentinel-auto catalog add
+sentinel-auto catalog import-bundle
+sentinel-auto plan add-title
+sentinel-auto plan remove-title
+sentinel-auto plan add-condition
+sentinel-auto plan remove-condition
+sentinel-auto plan set-enabled
+sentinel-auto plan deploy
+sentinel-auto plan deploy-catalog
+sentinel-auto apply
+sentinel-auto rollback
+```
+
+Display help for the complete CLI or a specific operation:
+
+```powershell
+sentinel-auto --help
+sentinel-auto discover --help
+sentinel-auto plan --help
+sentinel-auto plan add-title --help
+```
+
+## Global options
+
+Global options appear between `sentinel-auto` and the command:
+
+```text
+--inventory PATH
+--state-dir PATH
+--catalog-dir PATH
+--auth interactive|cli|default
+--api-version VERSION
+--debug
+--version
+```
+
+Examples:
+
+```powershell
+sentinel-auto `
+  --inventory C:\SentinelAutomation\workspaces.json `
+  list-targets
+
+sentinel-auto `
+  --state-dir C:\SentinelAutomation\state `
+  list-rules --targets all
+
+sentinel-auto --debug list-rules --targets customer-a
+```
+
+Most users should keep the default API version and enable `--debug` only while troubleshooting.
+
+## Repository data and safety
+
+- `config/workspaces.json` contains the local workspace inventory and is excluded from Git.
+- `config/workspaces.example.json` is a safe inventory template for the repository.
+- `rules/*.json` contains the local operational catalog and is excluded from this public repository.
+- `examples/known-benign-closure.json` is a sanitized, disabled sample definition.
+- `.sentinel-automation/plans/` contains generated plans.
+- `.sentinel-automation/backups/` contains pre-change backups and run manifests.
+- `.sentinel-automation/inventory-backups/` contains previous inventory versions.
+- A private repository can opt in to Git-managed `rules/*.json` after reviewing every external
+  reference.
+
+Do not commit access tokens, customer identifiers, generated state, or production inventory files.
+
+## Failure behavior
+
+- `--skip-missing` skips only workspaces where the selected rule is absent.
+- Permission failures, Azure request failures, ambiguous display names, and invalid rules remain
+  errors.
+- An already-present title produces `ALREADY PRESENT` and no write.
+- A rule changed after planning is rejected and must be replanned.
+- Successful writes in a partially failed run remain recorded and can be rolled back using the run
+  ID.
+
+## Development verification
+
+```powershell
+python -m unittest discover -v
+python -m ruff check .
+python -m ruff format --check .
+python -m pip check
+python -m build --wheel --no-isolation
+```
+
+Additional implementation details are available in [AUTOMATION_RULES.md](AUTOMATION_RULES.md).
+Contribution and vulnerability-reporting guidance is available in
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).

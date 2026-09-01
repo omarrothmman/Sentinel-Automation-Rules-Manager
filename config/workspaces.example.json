@@ -1,0 +1,15 @@
+{
+  "managing_tenant_id": "00000000-0000-0000-0000-000000000000",
+  "workspaces": [
+    {
+      "key": "customer-a",
+      "display_name": "Customer A",
+      "subscription_id": "11111111-1111-1111-1111-111111111111",
+      "resource_group": "sentinel-rg",
+      "workspace_name": "customer-a-sentinel",
+      "enabled": true,
+      "tags": ["production", "managed"]
+    }
+  ]
+}
+
