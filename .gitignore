@@ -4,6 +4,7 @@ rules/*.json
 *.egg-info/
 build/
 dist/
+*.log
 *.whl
 __pycache__/
 *.py[cod]

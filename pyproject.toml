@@ -39,6 +39,10 @@ Issues = "https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/issu
 
 [project.scripts]
 sentinel-auto = "sentinel_automation.cli:main"
+sentinel-auto-gui = "sentinel_automation.gui:main"
+
+[tool.setuptools.package-data]
+sentinel_automation = ["web/*.html", "web/*.css", "web/*.js"]
 
 [tool.setuptools.packages.find]
 include = ["sentinel_automation*"]

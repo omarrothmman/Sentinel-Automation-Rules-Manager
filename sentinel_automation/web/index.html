@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="__CSRF_TOKEN__">
+  <title>Sentinel Automation Rules Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <div><strong>SENTINEL</strong><small>Automation Rules</small></div>
+      </div>
+      <nav aria-label="Main navigation">
+        <button class="nav-item active" data-view="overview"><span>⌂</span> Overview</button>
+        <button class="nav-item" data-view="rules"><span>⌘</span> Automation rules</button>
+        <button class="nav-item" data-view="changes"><span>⇄</span> Plan a change</button>
+        <button class="nav-item" data-view="history"><span>↺</span> Plans &amp; runs</button>
+      </nav>
+      <div class="session-card">
+        <span class="pulse"></span>
+        <div><strong>Azure connected</strong><small id="api-version">Checking session…</small></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><span class="eyebrow">SECURITY OPERATIONS</span><h1 id="page-title">Overview</h1></div>
+        <div class="top-actions"><button class="icon-button" id="refresh" title="Refresh">↻</button><div class="avatar">SO</div></div>
+      </header>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+
+      <section class="view active" id="view-overview">
+        <div class="hero">
+          <div><span class="status-pill"><i></i> Authenticated session</span><h2>Your automation estate,<br><em>under control.</em></h2><p>Review rules across every connected Microsoft Sentinel workspace. Changes remain behind an integrity-protected plan and explicit approval.</p><button class="primary" data-go="rules">Review automation rules <span>→</span></button></div>
+          <div class="radar" aria-hidden="true"><div class="orbit one"></div><div class="orbit two"></div><div class="orbit three"></div><div class="radar-core"><b id="hero-workspaces">—</b><small>WORKSPACES</small></div><i class="node n1"></i><i class="node n2"></i><i class="node n3"></i></div>
+        </div>
+        <div class="metrics">
+          <article><span class="metric-icon cyan">◇</span><div><small>ENABLED WORKSPACES</small><strong id="metric-workspaces">—</strong><p>Available in inventory</p></div></article>
+          <article><span class="metric-icon violet">⌁</span><div><small>CATALOG RULES</small><strong id="metric-catalog">—</strong><p>Ready to deploy</p></div></article>
+          <article><span class="metric-icon green">✓</span><div><small>SUCCESSFUL RUNS</small><strong id="metric-runs">—</strong><p>Recorded locally</p></div></article>
+          <article><span class="metric-icon amber">◷</span><div><small>PENDING PLANS</small><strong id="metric-plans">—</strong><p>Awaiting review</p></div></article>
+        </div>
+        <div class="grid two">
+          <article class="panel"><div class="panel-head"><div><span class="eyebrow">INVENTORY</span><h3>Connected workspaces</h3></div><button class="text-button" data-go="rules">View rules →</button></div><div id="workspace-list" class="workspace-list skeleton-lines"></div></article>
+          <article class="panel"><div class="panel-head"><div><span class="eyebrow">ACTIVITY</span><h3>Recent operations</h3></div><button class="text-button" data-go="history">Full history →</button></div><div id="recent-runs" class="timeline skeleton-lines"></div></article>
+        </div>
+      </section>
+
+      <section class="view" id="view-rules">
+        <div class="section-intro"><div><h2>Automation rules</h2><p>Live rules read from the selected Sentinel workspaces.</p></div><div class="toolbar"><select id="rule-target"><option value="all">All enabled workspaces</option></select><button class="primary" id="load-rules">Load rules</button></div></div>
+        <div class="panel table-panel">
+          <div class="table-tools"><div class="search"><span>⌕</span><input id="rule-search" type="search" placeholder="Search rule name, ID, or workspace"></div><span id="rule-count" class="muted">Not loaded</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Rule</th><th>Workspace</th><th>Status</th><th>Trigger</th><th>Order</th></tr></thead><tbody id="rules-body"><tr><td colspan="5" class="empty">Choose a workspace and load its live rules.</td></tr></tbody></table></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-changes">
+        <div class="section-intro"><div><h2>Plan a change</h2><p>Create a read-only preview first. Azure is not modified until you review and apply it.</p></div><span class="safe-badge">◆ SAFE PLAN WORKFLOW</span></div>
+        <div class="grid change-grid">
+          <form id="plan-form" class="panel form-panel">
+            <div class="step-label"><span>01</span><div><strong>Choose the operation</strong><small>What should change?</small></div></div>
+            <label>Operation<select name="operation" id="operation"><option value="add-title">Add incident title</option><option value="remove-title">Remove incident title</option><option value="set-enabled">Enable or disable rule</option><option value="add-condition">Add condition</option><option value="remove-condition">Remove condition</option><option value="deploy-catalog">Deploy from catalog</option></select></label>
+            <div class="step-label"><span>02</span><div><strong>Select scope &amp; rule</strong><small>Where should it apply?</small></div></div>
+            <label>Target workspaces<select name="targets" id="plan-target"><option value="all">All enabled workspaces</option></select></label>
+            <div id="selector-fields">
+              <label>Find rule by<select id="selector-type"><option value="display_name">Display name</option><option value="rule_id">Rule ID</option></select></label>
+              <label id="selector-value-label">Rule display name<input name="selector_value" required placeholder="Close Known Benign Incidents"></label>
+            </div>
+            <div class="dynamic-fields" id="dynamic-fields"></div>
+            <label class="check" id="skip-row"><input type="checkbox" name="skip_missing" checked><span>Skip workspaces where this rule is missing</span></label>
+            <button class="primary wide" type="submit">Generate safe plan <span>→</span></button>
+          </form>
+          <article class="panel preview-panel">
+            <div class="preview-empty" id="preview-empty"><span>⇄</span><h3>No plan generated</h3><p>Complete the form to inspect exact changes before anything is written to Azure.</p></div>
+            <div id="plan-preview" hidden><div class="panel-head"><div><span class="eyebrow">PLAN PREVIEW</span><h3 id="preview-operation">Change plan</h3></div><span id="preview-integrity" class="hash"></span></div><div id="preview-summary" class="plan-summary"></div><div class="confirm-box"><p>This action writes to Azure and creates a backup. Type <strong>APPLY</strong> to continue.</p><div><input id="apply-confirmation" autocomplete="off" placeholder="Type APPLY"><button id="apply-plan" class="danger" type="button">Apply plan</button></div></div></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-history">
+        <div class="section-intro"><div><h2>Plans &amp; runs</h2><p>Locally recorded audit history, integrity seals, backups, and rollback controls.</p></div></div>
+        <div class="grid two">
+          <article class="panel"><div class="panel-head"><div><span class="eyebrow">CHANGE PLANS</span><h3>Generated plans</h3></div></div><div id="plans-list" class="history-list"></div></article>
+          <article class="panel"><div class="panel-head"><div><span class="eyebrow">APPLIED RUNS</span><h3>Deployment history</h3></div></div><div id="runs-list" class="history-list"></div></article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="rollback-dialog"><form method="dialog"><button class="dialog-close" value="cancel">×</button><span class="warning-mark">↺</span><h3>Rollback this run?</h3><p>The manager will verify the live rule state before restoring its backup. Type <strong>ROLLBACK</strong> to confirm.</p><input id="rollback-confirmation" autocomplete="off" placeholder="Type ROLLBACK"><label class="check"><input type="checkbox" id="rollback-force"><span>Force if the rule changed after deployment</span></label><div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button type="button" class="danger" id="confirm-rollback">Rollback run</button></div></form></dialog>
+</body>
+</html>

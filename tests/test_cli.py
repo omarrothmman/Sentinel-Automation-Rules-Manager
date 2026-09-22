@@ -1,13 +1,14 @@
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sentinel_automation.cli import _resolve_plan_path, _validate_plan_scope, build_parser, run
 from sentinel_automation.discovery import DiscoveryResult
-from sentinel_automation.errors import ConfigurationError
+from sentinel_automation.errors import AzureRequestError, ConfigurationError
 from sentinel_automation.inventory import Inventory
 from sentinel_automation.util import atomic_write_json
 
@@ -15,6 +16,102 @@ from .helpers import sample_properties, workspace
 
 
 class CliTests(unittest.TestCase):
+    def test_missing_rules_excludes_matches_and_failed_workspaces(self) -> None:
+        args = build_parser().parse_args(
+            ["list-rules", "--targets", "all", "--name-contains", "[DEF] Failsafe", "--missing"]
+        )
+        targets = tuple(
+            replace(workspace(), key=key) for key in ("failed", "match", "empty", "other")
+        )
+        client = Mock()
+        client.list_rules.side_effect = [
+            AzureRequestError("SubscriptionNotFound"),
+            [
+                {
+                    "properties": {
+                        "displayName": "[def] FAILSAFE - Copy 1",
+                        "triggeringLogic": {"isEnabled": False},
+                    }
+                }
+            ],
+            [],
+            [{"properties": {"displayName": "D Failsafe"}}],
+        ]
+        with (
+            patch("sentinel_automation.cli.Inventory.load", return_value=Inventory(None, targets)),
+            patch("sentinel_automation.cli._client", return_value=client),
+            patch("sentinel_automation.cli.render_table", return_value="result") as render,
+            redirect_stdout(StringIO()),
+            redirect_stderr(StringIO()) as errors,
+        ):
+            self.assertEqual(run(args), 2)
+        self.assertEqual([row[0] for row in render.call_args.args[3]], ["empty", "other"])
+        self.assertIn("3/4 workspaces checked; 1 failed", render.call_args.args[1])
+        self.assertIn("failed: SubscriptionNotFound", errors.getvalue())
+        client.close.assert_called_once()
+
+    def test_missing_requires_nonempty_filter_before_azure_access(self) -> None:
+        for options in ([], ["--name-contains", ""], ["--name-contains", "   "]):
+            with self.subTest(options=options):
+                args = build_parser().parse_args(
+                    ["list-rules", "--targets", "all", "--missing", *options]
+                )
+                with patch("sentinel_automation.cli._client") as client:
+                    with self.assertRaisesRegex(ConfigurationError, "requires a non-empty"):
+                        run(args)
+                    client.assert_not_called()
+
+    def test_list_rules_name_search_and_partial_failure(self) -> None:
+        args = build_parser().parse_args(
+            ["list-rules", "--targets", "all", "--name-contains", "[DEF] Failsafe"]
+        )
+        inventory = Inventory(None, tuple(replace(workspace(), key=key) for key in ("a", "b", "c")))
+        client = Mock()
+        client.list_rules.side_effect = [
+            AzureRequestError("SubscriptionNotFound"),
+            [
+                {"name": "match", "properties": {"displayName": "[def] FAILSAFE - Copy 1"}},
+                {"name": "decoy", "properties": {"displayName": "D Failsafe"}},
+            ],
+            [],
+        ]
+        output, errors = StringIO(), StringIO()
+        with (
+            patch("sentinel_automation.cli.Inventory.load", return_value=inventory),
+            patch("sentinel_automation.cli._client", return_value=client),
+            redirect_stdout(output),
+            redirect_stderr(errors),
+        ):
+            self.assertEqual(run(args), 2)
+        self.assertIn("[def] FAILSAFE - Copy 1", output.getvalue())
+        self.assertNotIn("decoy", output.getvalue())
+        self.assertIn("1 matching rules across 1 workspaces", output.getvalue())
+        self.assertIn("2/3 workspaces checked; 1 failed", output.getvalue())
+        self.assertIn("a: SubscriptionNotFound", errors.getvalue())
+        self.assertEqual(client.list_rules.call_count, 3)
+        client.close.assert_called_once()
+
+    def test_list_rules_unfiltered_and_no_matches(self) -> None:
+        for options, expected_count in (([], 1), (["--name-contains", "absent"], 0)):
+            with self.subTest(options=options):
+                args = build_parser().parse_args(["list-rules", "--targets", "all", *options])
+                client = Mock()
+                client.list_rules.return_value = [
+                    {"name": "rule-id", "properties": {"displayName": "Failsafe"}}
+                ]
+                with (
+                    patch(
+                        "sentinel_automation.cli.Inventory.load",
+                        return_value=Inventory(None, (workspace(),)),
+                    ),
+                    patch("sentinel_automation.cli._client", return_value=client),
+                    patch("sentinel_automation.cli.render_table", return_value="result") as render,
+                    redirect_stdout(StringIO()),
+                ):
+                    self.assertEqual(run(args), 0)
+                self.assertEqual(len(render.call_args.args[3]), expected_count)
+                client.close.assert_called_once()
+
     def test_version_argument(self) -> None:
         output = StringIO()
         with self.assertRaises(SystemExit) as result, redirect_stdout(output):

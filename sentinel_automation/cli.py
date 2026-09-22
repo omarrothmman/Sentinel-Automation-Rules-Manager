@@ -119,6 +119,15 @@ def build_parser() -> argparse.ArgumentParser:
         "list-rules", help="List automation rules in target workspaces"
     )
     _add_targets(list_rules)
+    list_rules.add_argument(
+        "--name-contains",
+        help="Filter automation rule names by literal, case-insensitive text",
+    )
+    list_rules.add_argument(
+        "--missing",
+        action="store_true",
+        help="Show workspaces with no matching rule (requires --name-contains)",
+    )
 
     export = subparsers.add_parser(
         "export", help="Export existing rules into Git-friendly JSON files"
@@ -444,6 +453,12 @@ def _discovery_progress(current: int, total: int, workspace_name: str) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
+    if (
+        args.command == "list-rules"
+        and args.missing
+        and not (args.name_contains and args.name_contains.strip())
+    ):
+        raise ConfigurationError("--missing requires a non-empty --name-contains filter")
     if args.command == "discover":
         if args.replace and not args.save:
             raise ConfigurationError("--replace requires --save")
@@ -562,9 +577,25 @@ def run(args: argparse.Namespace) -> int:
         if args.command == "list-rules":
             workspaces = inventory.select(args.targets)
             rows = []
+            failures = 0
+            missing_rows = []
+            matched_workspaces = 0
+            search = args.name_contains.casefold() if args.name_contains is not None else None
             for workspace in workspaces:
-                for rule in client.list_rules(workspace):
+                try:
+                    rules = client.list_rules(workspace)
+                except SentinelAutomationError as exc:
+                    failures += 1
+                    print(f"ERROR: {workspace.key}: {exc}", file=sys.stderr)
+                    continue
+                previous_count = len(rows)
+                for rule in rules:
                     properties = rule.get("properties", {})
+                    if (
+                        search is not None
+                        and search not in properties.get("displayName", "").casefold()
+                    ):
+                        continue
                     enabled = properties.get("triggeringLogic", {}).get("isEnabled", "unknown")
                     rows.append(
                         (
@@ -578,10 +609,43 @@ def run(args: argparse.Namespace) -> int:
                             properties.get("displayName", ""),
                         )
                     )
+                matched_workspaces += len(rows) > previous_count
+                if len(rows) == previous_count:
+                    missing_rows.append(
+                        (
+                            workspace.key,
+                            workspace.display_name,
+                            workspace.workspace_name,
+                            "NO MATCH",
+                        )
+                    )
+            if args.missing:
+                print(
+                    render_table(
+                        "SENTINEL WORKSPACES WITHOUT A MATCHING AUTOMATION RULE",
+                        f"{len(missing_rows)} workspaces with no matching rule; "
+                        f"{len(workspaces) - failures}/{len(workspaces)} workspaces checked; "
+                        f"{failures} failed (not classified as missing)",
+                        (
+                            Column("TARGET", 18, 30),
+                            Column("DISPLAY NAME", 24, 70),
+                            Column("WORKSPACE", 24, 70),
+                            Column("RESULT", 8, 8),
+                        ),
+                        missing_rows,
+                    )
+                )
+                return 2 if failures else 0
+            summary = (
+                f"{len(rows)} {'matching rules' if search is not None else 'rules'} across "
+                f"{matched_workspaces} workspaces; "
+                f"{len(workspaces) - failures}/{len(workspaces)} workspaces checked; "
+                f"{failures} failed"
+            )
             print(
                 render_table(
                     "MICROSOFT SENTINEL AUTOMATION RULES",
-                    f"{len(rows)} rules across {len(workspaces)} selected workspaces",
+                    summary,
                     (
                         Column("TARGET", 18, 30),
                         Column("STATUS", 8, 8),
@@ -591,7 +655,7 @@ def run(args: argparse.Namespace) -> int:
                     rows,
                 )
             )
-            return 0
+            return 2 if failures else 0
         if args.command == "export":
             selector = _selector(args)
             args.output.mkdir(parents=True, exist_ok=True)
