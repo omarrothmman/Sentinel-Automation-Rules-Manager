@@ -48,19 +48,18 @@ function renderBootstrap(data) {
   const enabled = data.workspaces.filter(item => item.enabled);
   el('api-version').textContent = `ARM API ${data.api_version}`;
   el('metric-workspaces').textContent = enabled.length;
-  el('hero-workspaces').textContent = enabled.length;
   el('metric-catalog').textContent = data.catalog.length;
   el('metric-runs').textContent = data.runs.filter(item => item.successful).length;
   el('metric-plans').textContent = data.plans.length;
   workspaceOptions(el('rule-target')); workspaceOptions(el('plan-target'));
-  el('workspace-list').innerHTML = enabled.slice(0, 6).map(workspace => `<div class="workspace-row"><span class="workspace-glyph">◇</span><div class="row-main"><strong>${escapeHtml(workspace.display_name)}</strong><small>${escapeHtml(workspace.workspace_name)} · ${escapeHtml(workspace.resource_group)}</small></div>${workspace.tags.slice(0,1).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`).join('') || '<div class="empty">No enabled workspaces.</div>';
+  el('workspace-list').innerHTML = enabled.slice(0, 6).map(workspace => `<div class="workspace-row"><div class="row-main"><strong>${escapeHtml(workspace.display_name)}</strong><small>${escapeHtml(workspace.workspace_name)} · ${escapeHtml(workspace.resource_group)}</small></div>${workspace.tags.slice(0,1).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`).join('') || '<div class="empty">No enabled workspaces.</div>';
   el('recent-runs').innerHTML = data.runs.slice(0, 5).map(run => runMarkup(run, false)).join('') || '<div class="empty">No applied runs yet.</div>';
-  el('plans-list').innerHTML = data.plans.map(plan => `<div class="history-row"><span class="workspace-glyph">⇄</span><div class="row-main"><strong>${escapeHtml(plan.operation)}</strong><small>${prettyTime(plan.created_at)} · ${plan.targets} targets</small></div><span class="tag">${escapeHtml(plan.file)}</span></div>`).join('') || '<div class="empty">No plans generated yet.</div>';
+  el('plans-list').innerHTML = data.plans.map(plan => `<div class="history-row"><div class="row-main"><strong>${escapeHtml(plan.operation)}</strong><small>${prettyTime(plan.created_at)} · ${plan.targets} targets</small></div><span class="tag">${escapeHtml(plan.file)}</span></div>`).join('') || '<div class="empty">No plans generated yet.</div>';
   el('runs-list').innerHTML = data.runs.map(run => runMarkup(run, true)).join('') || '<div class="empty">No runs applied yet.</div>';
 }
 
 function runMarkup(run, controls) {
-  return `<div class="${controls ? 'history-row' : 'timeline-row'}"><span class="workspace-glyph">${run.successful ? '✓' : '!'}</span><div class="row-main"><strong>${escapeHtml(run.operation || 'Azure operation')}</strong><small>${prettyTime(run.completed_at || run.started_at)} · ${run.results} results</small></div><div class="actions"><span class="tag ${run.successful ? 'success':'fail'}">${run.successful ? 'SUCCESS':'FAILED'}</span>${controls ? `<button class="secondary mini-danger rollback" data-run="${escapeHtml(run.run_id)}">Rollback</button>` : ''}</div></div>`;
+  return `<div class="${controls ? 'history-row' : 'timeline-row'}"><div class="row-main"><strong>${escapeHtml(run.operation || 'Azure operation')}</strong><small>${prettyTime(run.completed_at || run.started_at)} · ${run.results} results</small></div><div class="actions"><span class="tag ${run.successful ? 'success':'fail'}">${run.successful ? 'SUCCESS':'FAILED'}</span>${controls ? `<button class="secondary mini-danger rollback" data-run="${escapeHtml(run.run_id)}">Rollback</button>` : ''}</div></div>`;
 }
 
 async function refresh() {
