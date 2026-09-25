@@ -118,7 +118,9 @@ class GuiService:
                     "tags": list(workspace.tags),
                 }
                 for workspace in inventory.workspaces
-            ] if inventory else [],
+            ]
+            if inventory
+            else [],
             "catalog": [
                 {
                     "logical_name": rule.logical_name,
