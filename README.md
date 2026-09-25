@@ -133,30 +133,6 @@ Run `sentinel-auto --help` or add `--help` after any command for its exact synta
 
 **Planning details:** `--skip-missing` records absent rules as skipped; it does not ignore permission or Azure errors. `--condition-index` is 1-based when several conditions match. `--out PATH` chooses the plan file; otherwise plans go under `.sentinel-automation/plans/`. For catalog deployments, `--rules` accepts comma-separated logical names or `all`. For deployments, `--if-exists` defaults to `fail`; `skip` leaves an existing rule alone, and `update` plans to replace its complete definition.
 
-## Project layout
-
-```text
-Sentinel-Automation-Rules-Manager/
-|-- sentinel_automation/   Python package: CLI, Azure access, planning, and rollback
-|   |-- cli.py             CLI commands
-|   |-- gui.py             Optional local GUI server
-|   |-- web/               GUI HTML, CSS, and JavaScript
-|   `-- ...                Authentication, discovery, rules, catalog, and inventory
-|-- config/                Example inventory; your real inventory is ignored by Git
-|-- rules/                 Local rule catalog; rule JSON files are ignored by Git
-|-- examples/              Sanitized example rule
-|-- tests/                 Automated tests
-|-- pyproject.toml         Package dependencies and command entry points
-|-- LICENSE                MIT license
-|-- CONTRIBUTING.md        Contributor setup and checks
-|-- SECURITY.md            Vulnerability reporting
-`-- AUTOMATION_RULES.md    Detailed design and safety notes
-```
-
-Generated plans, backups, and run records live in `.sentinel-automation/` and are ignored by Git. Real inventories, rule exports, and catalog files can contain tenant IDs, resource IDs, object IDs, or email addresses; keep them out of a public repository. The example under `examples/` is sanitized and disabled.
-
-For development checks and contribution guidance, see [CONTRIBUTING.md](CONTRIBUTING.md). For the safety model and implementation details, see [AUTOMATION_RULES.md](AUTOMATION_RULES.md).
-
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
