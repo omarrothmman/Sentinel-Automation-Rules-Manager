@@ -9,7 +9,29 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <div class="shell">
+  <div id="notice" class="notice" role="status" hidden></div>
+
+  <main id="onboarding" class="onboarding" hidden>
+    <form id="setup-form" class="setup-panel">
+      <div class="setup-brand"><strong>Sentinel</strong><span>Automation rules manager</span></div>
+      <h1 id="setup-title">Connect to Microsoft Azure</h1>
+      <p id="setup-copy">Sign in to find the Microsoft Sentinel workspaces you can manage.</p>
+      <label>Authentication method
+        <select id="setup-auth" name="auth">
+          <option value="interactive">Browser sign-in</option>
+          <option value="cli">Azure CLI session</option>
+          <option value="default">Default Azure credential</option>
+        </select>
+      </label>
+      <label>Managing tenant ID <span class="optional">Optional</span>
+        <input id="setup-tenant" name="tenant_id" autocomplete="off" placeholder="Leave blank to use your signed-in tenant">
+      </label>
+      <button id="setup-submit" class="primary wide" type="submit">Sign in and discover workspaces</button>
+      <small class="setup-note">Workspace inventory is stored locally and is not committed to Git.</small>
+    </form>
+  </main>
+
+  <div class="shell" id="app-shell" hidden>
     <aside class="sidebar">
       <div class="brand"><strong>Sentinel</strong><small>Automation rules</small></div>
       <nav aria-label="Main navigation">
@@ -29,8 +51,6 @@
         <h1 id="page-title">Overview</h1>
         <button class="secondary" id="refresh" type="button">Refresh</button>
       </header>
-
-      <div id="notice" class="notice" role="status" hidden></div>
 
       <section class="view active" id="view-overview">
         <div class="section-intro">

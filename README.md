@@ -17,6 +17,14 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e .
 
+sentinel-auto-gui
+```
+
+The browser opens a first-run setup screen. Choose **Browser sign-in**, leave the tenant ID blank unless you need to force a specific managing tenant, and select **Sign in and discover workspaces**. The GUI signs in to Azure, discovers accessible Microsoft Sentinel workspaces, and saves the local inventory automatically.
+
+For the CLI workflow instead:
+
+```powershell
 sentinel-auto discover --save
 sentinel-auto list-targets
 sentinel-auto list-rules --targets all
@@ -32,7 +40,7 @@ To use an existing Azure CLI sign-in, put `--auth cli` **before** the command: `
 sentinel-auto-gui
 ```
 
-The GUI is optional. It signs in, starts a server on `127.0.0.1`, and opens your browser. Stop it with `Ctrl+C` in the terminal. It uses the same inventory and plan, apply, and rollback engine as the CLI. You can also run `sentinel-auto-gui --auth cli`.
+The GUI starts only on `127.0.0.1` and opens your browser. On first use, its setup screen handles Azure sign-in and workspace discovery; on later uses, it reuses the local inventory and asks you to sign in. Stop it with `Ctrl+C` in the terminal. It uses the same plan, apply, and rollback engine as the CLI.
 
 | GUI option | Purpose |
 | --- | --- |
@@ -40,6 +48,7 @@ The GUI is optional. It signs in, starts a server on `127.0.0.1`, and opens your
 | `--state-dir PATH` | Plans and backups; default `.sentinel-automation` |
 | `--catalog-dir PATH` | Rule catalog; default `rules` |
 | `--auth` | `interactive`, `cli`, or `default`; default `interactive` |
+| `--tenant-id ID` | Optional managing tenant ID shown on the setup screen |
 | `--api-version VERSION` | Azure API version |
 | `--port NUMBER` | Local port; `0` (the default) chooses a free port |
 | `--no-browser` | Print the local address without opening a browser |

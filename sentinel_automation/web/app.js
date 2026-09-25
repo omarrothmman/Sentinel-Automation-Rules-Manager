@@ -45,6 +45,16 @@ function workspaceOptions(select) {
 
 function renderBootstrap(data) {
   state.bootstrap = data;
+  el('setup-auth').value = data.auth_mode || 'interactive';
+  el('setup-tenant').value = data.managing_tenant_id || '';
+  el('setup-title').textContent = data.needs_setup ? 'Set up Microsoft Sentinel' : 'Connect to Microsoft Azure';
+  el('setup-copy').textContent = data.needs_setup
+    ? 'Sign in once to discover the Microsoft Sentinel workspaces you can manage.'
+    : 'Sign in to use the saved workspace inventory on this device.';
+  el('setup-submit').textContent = data.needs_setup ? 'Sign in and discover workspaces' : 'Sign in to Azure';
+  el('onboarding').hidden = data.authenticated;
+  el('app-shell').hidden = !data.authenticated;
+  if (!data.authenticated) return;
   const enabled = data.workspaces.filter(item => item.enabled);
   el('api-version').textContent = `ARM API ${data.api_version}`;
   el('metric-workspaces').textContent = enabled.length;
@@ -56,6 +66,29 @@ function renderBootstrap(data) {
   el('recent-runs').innerHTML = data.runs.slice(0, 5).map(run => runMarkup(run, false)).join('') || '<div class="empty">No applied runs yet.</div>';
   el('plans-list').innerHTML = data.plans.map(plan => `<div class="history-row"><div class="row-main"><strong>${escapeHtml(plan.operation)}</strong><small>${prettyTime(plan.created_at)} · ${plan.targets} targets</small></div><span class="tag">${escapeHtml(plan.file)}</span></div>`).join('') || '<div class="empty">No plans generated yet.</div>';
   el('runs-list').innerHTML = data.runs.map(run => runMarkup(run, true)).join('') || '<div class="empty">No runs applied yet.</div>';
+}
+
+async function setup(event) {
+  event.preventDefault();
+  const button = el('setup-submit');
+  setBusy(button, true, 'Connecting...');
+  try {
+    const tenantId = el('setup-tenant').value.trim();
+    const result = await api('/api/setup', {
+      method: 'POST',
+      body: JSON.stringify({auth: el('setup-auth').value, tenant_id: tenantId || null})
+    });
+    renderBootstrap(result);
+    updatePlanFields();
+    const issueCount = result.discovery_issues?.length || 0;
+    notify(issueCount
+      ? `Connected. ${issueCount} workspace lookup(s) could not be completed.`
+      : `Connected to ${result.workspaces.length} Sentinel workspace(s).`, issueCount > 0);
+  } catch (error) {
+    notify(error.message, true);
+  } finally {
+    setBusy(button, false);
+  }
 }
 
 function runMarkup(run, controls) {
@@ -163,5 +196,6 @@ document.querySelectorAll('.nav-item').forEach(node => node.addEventListener('cl
 el('refresh').addEventListener('click', refresh); el('load-rules').addEventListener('click', loadRules); el('rule-search').addEventListener('input', renderRules);
 el('operation').addEventListener('change', updatePlanFields); el('selector-type').addEventListener('change', event => { const input = document.querySelector('[name="selector_value"]'); const byName = event.target.value === 'display_name'; el('selector-value-label').childNodes[0].textContent = byName ? 'Rule display name' : 'Rule ID'; input.placeholder = byName ? 'Close Known Benign Incidents' : '00000000-0000-0000-0000-000000000000'; });
 el('plan-form').addEventListener('submit', createPlan); el('apply-plan').addEventListener('click', applyPlan); el('confirm-rollback').addEventListener('click', rollback);
+el('setup-form').addEventListener('submit', setup);
 
 refresh().then(updatePlanFields);

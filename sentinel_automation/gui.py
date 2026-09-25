@@ -18,6 +18,7 @@ from .auth import create_credential
 from .azure import DEFAULT_API_VERSION, ArmClient
 from .catalog import load_catalog, select_catalog_rules
 from .cli import _validate_plan_scope
+from .discovery import discover_sentinel_workspaces, inventory_document
 from .errors import ConfigurationError, SentinelAutomationError
 from .inventory import Inventory
 from .plans import (
@@ -36,7 +37,7 @@ from .rules import (
     remove_property_value,
     set_enabled,
 )
-from .util import read_json, safe_key, timestamp_id
+from .util import atomic_write_json, read_json, safe_key, timestamp_id
 
 DEFAULT_INVENTORY = Path("config/workspaces.json")
 DEFAULT_STATE_DIR = Path(".sentinel-automation")
@@ -82,22 +83,33 @@ class GuiConfig:
     catalog_dir: Path
     auth: str
     api_version: str
+    tenant_id: str | None = None
 
 
 class GuiService:
     """Small adapter that exposes the existing safe plan/apply workflow to the GUI."""
 
-    def __init__(self, config: GuiConfig, client: ArmClient) -> None:
+    def __init__(self, config: GuiConfig, client: ArmClient | None = None) -> None:
         self.config = config
         self.client = client
-        self.inventory = Inventory.load(config.inventory)
+        self.inventory = Inventory.load(config.inventory) if config.inventory.is_file() else None
+        self.auth_mode = config.auth
+        self.tenant_id = config.tenant_id or (
+            self.inventory.managing_tenant_id if self.inventory else None
+        )
         self._lock = threading.Lock()
+        self._setup_lock = threading.Lock()
 
     def bootstrap(self) -> dict[str, Any]:
         catalog = load_catalog(self.config.catalog_dir)
+        inventory = self.inventory
+        client = self.client
         return {
-            "authenticated": True,
-            "api_version": self.client.api_version,
+            "authenticated": client is not None,
+            "needs_setup": inventory is None,
+            "auth_mode": self.auth_mode,
+            "managing_tenant_id": self.tenant_id,
+            "api_version": client.api_version if client else self.config.api_version,
             "inventory_path": str(self.config.inventory.resolve()),
             "workspaces": [
                 {
@@ -105,8 +117,8 @@ class GuiService:
                     "enabled": workspace.enabled,
                     "tags": list(workspace.tags),
                 }
-                for workspace in self.inventory.workspaces
-            ],
+                for workspace in inventory.workspaces
+            ] if inventory else [],
             "catalog": [
                 {
                     "logical_name": rule.logical_name,
@@ -119,15 +131,80 @@ class GuiService:
             "runs": self._runs(),
         }
 
+    def setup(self, payload: dict[str, Any]) -> dict[str, Any]:
+        auth_mode = str(payload.get("auth", self.config.auth))
+        if auth_mode not in ("interactive", "cli", "default"):
+            raise ConfigurationError("Invalid authentication method")
+        tenant_value = payload.get("tenant_id")
+        tenant_id = (
+            _required_string(tenant_value, "Tenant ID")
+            if tenant_value not in (None, "")
+            else self.tenant_id
+        )
+
+        with self._setup_lock:
+            credential = create_credential(auth_mode, tenant_id)
+            new_client = ArmClient(credential, api_version=self.config.api_version)
+            try:
+                new_client.authenticate()
+                inventory = self.inventory
+                discovery_issues: list[dict[str, str]] = []
+                if inventory is None:
+                    result = discover_sentinel_workspaces(new_client, tenant_id)
+                    if not result.workspaces:
+                        raise ConfigurationError(
+                            "No Microsoft Sentinel workspaces were found for this account"
+                        )
+                    document = inventory_document(result, managing_tenant_id=tenant_id)
+                    atomic_write_json(self.config.inventory, document)
+                    inventory = Inventory.load(self.config.inventory)
+                    discovery_issues = [
+                        {
+                            "subscription_id": issue.subscription_id,
+                            "resource_group": issue.resource_group,
+                            "workspace_name": issue.workspace_name,
+                            "error": issue.error,
+                        }
+                        for issue in result.issues
+                    ]
+            except Exception:
+                new_client.close()
+                raise
+
+            with self._lock:
+                old_client = self.client
+                self.client = new_client
+                self.inventory = inventory
+                self.auth_mode = auth_mode
+                self.tenant_id = tenant_id
+            if old_client is not None:
+                old_client.close()
+
+        response = self.bootstrap()
+        response["discovery_issues"] = discovery_issues
+        return response
+
+    def _require_client(self) -> ArmClient:
+        if self.client is None:
+            raise ConfigurationError("Connect to Azure first")
+        return self.client
+
+    def _require_inventory(self) -> Inventory:
+        if self.inventory is None:
+            raise ConfigurationError("Discover Sentinel workspaces first")
+        return self.inventory
+
     def list_rules(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self._require_client()
+        inventory = self._require_inventory()
         targets = _required_string(payload.get("targets", "all"), "Targets")
-        workspaces = self.inventory.select(targets)
+        workspaces = inventory.select(targets)
         rows: list[dict[str, Any]] = []
         failures: list[dict[str, str]] = []
         with self._lock:
             for workspace in workspaces:
                 try:
-                    resources = self.client.list_rules(workspace)
+                    resources = client.list_rules(workspace)
                 except Exception as exc:
                     failures.append({"workspace": workspace.key, "error": str(exc)})
                     continue
@@ -155,9 +232,11 @@ class GuiService:
         return {"rules": rows, "failures": failures, "workspace_count": len(workspaces)}
 
     def create_plan(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self._require_client()
+        inventory = self._require_inventory()
         operation = _required_string(payload.get("operation"), "Operation")
         targets = _required_string(payload.get("targets", "all"), "Targets")
-        workspaces = self.inventory.select(targets)
+        workspaces = inventory.select(targets)
         skip_missing = bool(payload.get("skip_missing", True))
 
         if operation == "deploy-catalog":
@@ -167,7 +246,7 @@ class GuiService:
             if if_exists not in ("fail", "skip", "update"):
                 raise ConfigurationError("Invalid existing-rule behavior")
             with self._lock:
-                plan = build_catalog_deployment_plan(self.client, workspaces, rules, str(if_exists))
+                plan = build_catalog_deployment_plan(client, workspaces, rules, str(if_exists))
         else:
             selector = _selector(payload)
             condition_index = _optional_index(payload.get("condition_index"))
@@ -223,7 +302,7 @@ class GuiService:
             parameters["skip_missing"] = skip_missing
             with self._lock:
                 plan = build_mutation_plan(
-                    self.client,
+                    client,
                     workspaces,
                     selector,
                     operation,
@@ -238,16 +317,19 @@ class GuiService:
         return {"plan": sealed, "plan_file": filename}
 
     def apply(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self._require_client()
+        inventory = self._require_inventory()
         if payload.get("confirmation") != "APPLY":
             raise ConfigurationError("Type APPLY to confirm this Azure change")
         plan_path = self._plan_path(payload.get("plan_file"))
         plan = load_plan(plan_path)
-        _validate_plan_scope(plan, self.inventory)
+        _validate_plan_scope(plan, inventory)
         with self._lock:
-            run_id, report = apply_plan(self.client, plan, self.config.state_dir)
+            run_id, report = apply_plan(client, plan, self.config.state_dir)
         return {"run_id": run_id, "report": report}
 
     def rollback(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self._require_client()
         if payload.get("confirmation") != "ROLLBACK":
             raise ConfigurationError("Type ROLLBACK to confirm this Azure change")
         run_id = _required_string(payload.get("run_id"), "Run ID")
@@ -255,13 +337,13 @@ class GuiService:
             raise ConfigurationError("Invalid run ID")
         manifest = read_json(self.config.state_dir / "backups" / run_id / "manifest.json")
         api_version = manifest.get("api_version") if isinstance(manifest, dict) else None
-        if api_version != self.client.api_version:
+        if api_version != client.api_version:
             raise ConfigurationError(
-                f"Run uses API {api_version}, but this session uses {self.client.api_version}"
+                f"Run uses API {api_version}, but this session uses {client.api_version}"
             )
         with self._lock:
             report = rollback_run(
-                self.client, self.config.state_dir, run_id, bool(payload.get("force", False))
+                client, self.config.state_dir, run_id, bool(payload.get("force", False))
             )
         return {"report": report}
 
@@ -326,7 +408,8 @@ class GuiService:
         return runs[:50]
 
     def close(self) -> None:
-        self.client.close()
+        if self.client is not None:
+            self.client.close()
 
 
 class GuiServer(ThreadingHTTPServer):
@@ -390,6 +473,7 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Request body must be an object"})
             return
         routes: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "/api/setup": self.server.service.setup,
             "/api/rules": self.server.service.list_rules,
             "/api/plans": self.server.service.create_plan,
             "/api/apply": self.server.service.apply,
@@ -455,6 +539,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR)
     parser.add_argument("--catalog-dir", type=Path, default=DEFAULT_CATALOG_DIR)
     parser.add_argument("--auth", choices=("interactive", "cli", "default"), default="interactive")
+    parser.add_argument(
+        "--tenant-id",
+        help="Optional managing tenant ID to prefill on the first-run setup screen",
+    )
     parser.add_argument("--api-version", default=DEFAULT_API_VERSION)
     parser.add_argument("--port", type=int, default=0, help="Local port; 0 chooses a free port")
     parser.add_argument(
@@ -466,20 +554,21 @@ def build_parser() -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> int:
     if not 0 <= args.port <= 65535:
         raise ConfigurationError("Port must be between 0 and 65535")
-    inventory = Inventory.load(args.inventory)
-    credential = create_credential(args.auth, inventory.managing_tenant_id)
-    client = ArmClient(credential, api_version=args.api_version)
     service = GuiService(
-        GuiConfig(args.inventory, args.state_dir, args.catalog_dir, args.auth, args.api_version),
-        client,
+        GuiConfig(
+            args.inventory,
+            args.state_dir,
+            args.catalog_dir,
+            args.auth,
+            args.api_version,
+            args.tenant_id,
+        ),
     )
-    print(f"Authenticating with Azure ({args.auth})...", flush=True)
     try:
-        client.authenticate()
-        print("Authentication successful.", flush=True)
         server = GuiServer(("127.0.0.1", args.port), service, secrets.token_urlsafe(32))
         url = f"http://127.0.0.1:{server.server_port}/"
         print(f"Sentinel Automation Rules Manager: {url}")
+        print("Complete Azure sign-in in the local GUI.")
         print("Press Ctrl+C to stop the local GUI.")
         if not args.no_browser:
             threading.Timer(0.2, webbrowser.open, args=(url,)).start()

@@ -5,7 +5,9 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
+from sentinel_automation.discovery import DiscoveryResult
 from sentinel_automation.errors import ConfigurationError
 from sentinel_automation.gui import GuiConfig, GuiServer, GuiService, build_parser
 from sentinel_automation.util import atomic_write_json
@@ -54,10 +56,66 @@ class GuiTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_gui_parser_does_not_change_cli_parser(self) -> None:
-        args = build_parser().parse_args(["--auth", "cli", "--port", "8123", "--no-browser"])
+        args = build_parser().parse_args(
+            [
+                "--auth",
+                "cli",
+                "--tenant-id",
+                "tenant-override",
+                "--port",
+                "8123",
+                "--no-browser",
+            ]
+        )
         self.assertEqual(args.auth, "cli")
+        self.assertEqual(args.tenant_id, "tenant-override")
         self.assertEqual(args.port, 8123)
         self.assertTrue(args.no_browser)
+
+    def test_first_run_setup_authenticates_discovers_and_saves_inventory(self) -> None:
+        inventory_path = self.root / "fresh" / "workspaces.json"
+        service = GuiService(
+            GuiConfig(
+                inventory_path,
+                self.state_dir,
+                self.catalog_dir,
+                "interactive",
+                self.client.api_version,
+            )
+        )
+        initial = service.bootstrap()
+        self.assertFalse(initial["authenticated"])
+        self.assertTrue(initial["needs_setup"])
+        self.assertEqual(initial["workspaces"], [])
+
+        azure_client = Mock()
+        azure_client.api_version = self.client.api_version
+        discovery = DiscoveryResult(
+            workspaces=(self.target,),
+            issues=(),
+            log_analytics_count=1,
+            subscription_count=1,
+            subscription_names={self.target.subscription_id: "Customer subscription"},
+        )
+        with (
+            patch("sentinel_automation.gui.create_credential", return_value=object()),
+            patch("sentinel_automation.gui.ArmClient", return_value=azure_client),
+            patch(
+                "sentinel_automation.gui.discover_sentinel_workspaces",
+                return_value=discovery,
+            ) as discover,
+        ):
+            result = service.setup({"auth": "interactive", "tenant_id": "tenant-first-run"})
+
+        azure_client.authenticate.assert_called_once_with()
+        discover.assert_called_once_with(azure_client, "tenant-first-run")
+        self.assertTrue(inventory_path.is_file())
+        self.assertTrue(result["authenticated"])
+        self.assertFalse(result["needs_setup"])
+        self.assertEqual(result["managing_tenant_id"], "tenant-first-run")
+        self.assertEqual(len(result["workspaces"]), 1)
+        service.close()
+        azure_client.close.assert_called_once_with()
 
     def test_lists_live_rules_as_structured_data(self) -> None:
         result = self.service.list_rules({"targets": "all"})
