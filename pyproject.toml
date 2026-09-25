@@ -30,6 +30,8 @@ dependencies = [
 dev = [
     "build>=1.2,<2",
     "ruff>=0.12,<1",
+    "setuptools>=75",
+    "wheel",
 ]
 
 [project.urls]
