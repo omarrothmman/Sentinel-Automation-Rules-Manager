@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "sentinel-automation-rules"
 version = "1.5.0"
 description = "Safe content-as-code management for Microsoft Sentinel automation rules across Azure Lighthouse workspaces"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 keywords = ["azure", "microsoft-sentinel", "automation-rules", "azure-lighthouse"]
 classifiers = [
@@ -30,7 +32,7 @@ dependencies = [
 dev = [
     "build>=1.2,<2",
     "ruff>=0.12,<1",
-    "setuptools>=75",
+    "setuptools>=77",
     "wheel",
 ]
 
