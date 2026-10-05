@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentinel-automation-rules"
-version = "1.5.0"
+version = "1.6.0"
 description = "Safe content-as-code management for Microsoft Sentinel automation rules across Azure Lighthouse workspaces"
 readme = "README.md"
 license = "MIT"
@@ -29,6 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = ["mcp>=1.26,<2", "tomli>=2; python_version < '3.11'"]
 dev = [
     "build>=1.2,<2",
     "ruff>=0.12,<1",
@@ -44,6 +45,8 @@ Issues = "https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/issu
 [project.scripts]
 sentinel-auto = "sentinel_automation.cli:main"
 sentinel-auto-gui = "sentinel_automation.gui:main"
+sentinel-auto-mcp = "sentinel_automation.mcp_server:main"
+sentinel-auto-mcp-config = "sentinel_automation.mcp_config:main"
 
 [tool.setuptools.package-data]
 sentinel_automation = ["web/*.html", "web/*.css", "web/*.js"]

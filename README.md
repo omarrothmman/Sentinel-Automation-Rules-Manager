@@ -190,6 +190,20 @@ sentinel-auto rollback --run RUN_ID
 
 API reference: [Microsoft Sentinel watchlist items](https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlist-items/create-or-update?view=rest-securityinsights-2025-09-01).
 
+## Desktop MCP
+
+Use the same rules/watchlists engine from Codex or Claude Desktop with the local `sentinel-manager`
+MCP server. It includes 18 tools for discovery, inspection, CSV export, planning, review, apply,
+and rollback. Plans and backups are shared with the GUI and CLI.
+
+```powershell
+python -m pip install -e ".[mcp]"
+python -m sentinel_automation.mcp_config --install --client both
+```
+
+Restart the clients, then ask: **"Use sentinel-manager to check status, connect to Azure, and list my workspaces."**
+See [MCP setup and tool reference](docs/MCP.md) for configuration, approval phrases, and testing.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
