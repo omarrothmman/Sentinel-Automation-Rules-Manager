@@ -5,17 +5,92 @@ const el = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
 const prettyTime = value => value ? new Date(value).toLocaleString() : 'In progress';
 
+function operationName(operation) {
+  return ({'watchlists-add':'Add watchlist rows', 'watchlists-update':'Update watchlist rows', 'watchlists-delete':'Delete watchlist rows', 'watchlists-import':'Import watchlist rows', 'add-title':'Add incident title', 'remove-title':'Remove incident title', 'set-enabled':'Change rule state', 'add-condition':'Add condition', 'remove-condition':'Remove condition', 'deploy-catalog':'Deploy catalog rules', deploy:'Deploy rule'})[operation] || 'Azure operation';
+}
+function displayValue(value) {
+  if (value === null || value === undefined) return '<em>Not present</em>';
+  if (Array.isArray(value)) return value.length ? `<ul>${value.map(item => `<li>${displayValue(item)}</li>`).join('')}</ul>` : '<em>Empty</em>';
+  if (typeof value === 'object') return `<dl>${Object.entries(value).map(([key,item]) => `<dt>${escapeHtml(key)}</dt><dd>${displayValue(item)}</dd>`).join('')}</dl>`;
+  return escapeHtml(value);
+}
+function errorMarkup(info, workspace = '', name = '') {
+  const fields = [['Code',info.code],['HTTP status',info.http_status],['Workspace',workspace || info.workspace],['Resource',name || info.target],['Request ID',info.request_id]];
+  return `<article class="error-card"><p class="error-message">${escapeHtml(info.message || 'The operation failed.')}</p><dl>${fields.filter(([,value]) => value).map(([label,value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}${(info.details || []).map(detail => `<dt>${escapeHtml(detail.label)}</dt><dd>${escapeHtml(detail.value)}</dd>`).join('')}</dl></article>`;
+}
+function showErrors(errors) {
+  el('error-details').innerHTML = errors.map(info => errorMarkup(info)).join('');
+  if (!el('error-dialog').open) el('error-dialog').showModal();
+}
+el('error-close').addEventListener('click', () => el('error-dialog').close());
+
+function chooseChangeKind(kind) {
+  state.changeKind = kind;
+  el('plan-form').hidden = kind !== 'rule';
+  el('watchlist-planner').hidden = kind !== 'watchlist';
+  el('choose-rule-change').setAttribute('aria-pressed', String(kind === 'rule'));
+  el('choose-watchlist-change').setAttribute('aria-pressed', String(kind === 'watchlist'));
+}
+function renderSourceWorkspaces() {
+  const select = el('wl-source-workspace'); const current = select.value;
+  select.innerHTML = '<option value="">Select workspace</option>' + (state.bootstrap?.workspaces || []).filter(w => w.enabled).map(w => `<option value="${escapeHtml(w.key)}">${escapeHtml(w.display_name)}</option>`).join('');
+  if ([...select.options].some(option => option.value === current)) select.value = current;
+}
+function syncSourceSelection(workspace, alias) {
+  el('wl-source-workspace').value = workspace;
+  const select = el('wl-source-alias');
+  if (![...select.options].some(option => option.value === alias)) select.innerHTML = `<option value="${escapeHtml(alias)}">${escapeHtml(alias)}</option>`;
+  select.value = alias; select.disabled = false;
+}
+function openWatchlistPlanner() {
+  chooseChangeKind('watchlist'); showView('changes');
+  el('page-title').scrollIntoView({block:'start'});
+}
+let sourceRequest = 0;
+async function loadSourceWatchlists() {
+  const sequence = ++sourceRequest;
+  const workspace = el('wl-source-workspace').value;
+  const select = el('wl-source-alias');
+  wl.alias = null; wl.selected = null; el('wl-form').hidden = true;
+  select.innerHTML = '<option value="">Select watchlist</option>'; select.disabled = true;
+  if (!workspace) return;
+  const button = el('wl-source-reload'); setBusy(button, true, 'Loading…');
+  try {
+    const result = await wlRequest({request:'list', targets:workspace});
+    if (sequence !== sourceRequest) return;
+    if (result.failures.length) { showErrors(result.failures.map(f => ({...f.error_info,message:f.error,workspace:f.workspace}))); return; }
+    select.innerHTML += result.watchlists.map(w => `<option value="${escapeHtml(w.alias)}">${escapeHtml(w.display_name || w.alias)} (${escapeHtml(w.alias)})</option>`).join('');
+    select.disabled = false;
+    el('wl-source-status').textContent = result.watchlists.length ? '' : 'No watchlists found';
+    el('wl-source-status').hidden = result.watchlists.length > 0;
+  } catch (error) { if (sequence === sourceRequest) notify(error, true); }
+  finally { if (sequence === sourceRequest) setBusy(button, false); }
+}
+el('wl-source-workspace').addEventListener('change', loadSourceWatchlists);
+el('wl-source-reload').addEventListener('click', loadSourceWatchlists);
+el('wl-source-alias').addEventListener('change', async () => {
+  const workspace = el('wl-source-workspace').value; const alias = el('wl-source-alias').value;
+  el('wl-form').hidden = true; wl.alias = null;
+  if (!alias) return;
+  await wlBusy(el('wl-source-reload'), () => wlLoadRows(workspace, alias, false, true));
+});
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
     headers: {'Content-Type':'application/json', 'X-CSRF-Token':csrf, ...(options.headers || {})}
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(body.error || `Request failed (${response.status})`);
+    error.info = body.error_info || {code:'RequestFailed', message:error.message, http_status:response.status};
+    throw error;
+  }
   return body;
 }
 
 function notify(message, error = false) {
+  if (error) { showErrors([message instanceof Error ? (message.info || {code:message.name, message:message.message}) : {code:'OperationFailed', message:String(message)}]); return; }
   const notice = el('notice');
   notice.textContent = message;
   notice.classList.toggle('error', error);
@@ -49,24 +124,24 @@ function renderBootstrap(data) {
   el('setup-auth').value = data.auth_mode || 'interactive';
   el('setup-tenant').value = data.managing_tenant_id || '';
   el('setup-title').textContent = data.needs_setup ? 'Set up Microsoft Sentinel' : 'Connect to Microsoft Azure';
-  el('setup-copy').textContent = data.needs_setup
-    ? 'Sign in once to discover the Microsoft Sentinel workspaces you can manage.'
-    : 'Sign in to use the saved workspace inventory on this device.';
+
   el('setup-submit').textContent = data.needs_setup ? 'Sign in and discover workspaces' : 'Sign in to Azure';
   el('onboarding').hidden = data.authenticated;
   el('app-shell').hidden = !data.authenticated;
   if (!data.authenticated) return;
   const enabled = data.workspaces.filter(item => item.enabled);
-  el('api-version').textContent = `ARM API ${data.api_version}`;
+
   el('metric-workspaces').textContent = enabled.length;
   el('metric-catalog').textContent = data.catalog.length;
   el('metric-runs').textContent = data.runs.filter(item => item.successful).length;
   el('metric-plans').textContent = data.plans.length;
   workspaceOptions(el('rule-target')); workspaceOptions(el('plan-target'));
   workspaceOptions(el('wl-target'));
+  renderWlTargets();
+  renderSourceWorkspaces();
   el('workspace-list').innerHTML = enabled.slice(0, 6).map(workspace => `<div class="workspace-row"><div class="row-main"><strong>${escapeHtml(workspace.display_name)}</strong><small>${escapeHtml(workspace.workspace_name)} · ${escapeHtml(workspace.resource_group)}</small></div>${workspace.tags.slice(0,1).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`).join('') || '<div class="empty">No enabled workspaces.</div>';
   el('recent-runs').innerHTML = data.runs.slice(0, 5).map(run => runMarkup(run, false)).join('') || '<div class="empty">No applied runs yet.</div>';
-  el('plans-list').innerHTML = data.plans.map(plan => `<div class="history-row"><div class="row-main"><strong>${escapeHtml(plan.operation)}</strong><small>${prettyTime(plan.created_at)} · ${plan.targets} targets</small></div><span class="tag">${escapeHtml(plan.file)}</span></div>`).join('') || '<div class="empty">No plans generated yet.</div>';
+  el('plans-list').innerHTML = data.plans.map(plan => `<div class="history-row"><div class="row-main"><strong>${escapeHtml(operationName(plan.operation))}</strong><small>${prettyTime(plan.created_at)} · ${plan.targets} targets</small></div></div>`).join('') || '<div class="empty">No plans generated yet.</div>';
   el('runs-list').innerHTML = data.runs.map(run => runMarkup(run, true)).join('') || '<div class="empty">No runs applied yet.</div>';
   [...el('plans-list').children].forEach((row, index) => {
     if (!data.plans[index]) return;
@@ -74,7 +149,7 @@ function renderBootstrap(data) {
     button.className = 'secondary'; button.textContent = 'Review';
     button.addEventListener('click', async () => {
       try { renderPlan(await api('/api/plan', {method:'POST', body:JSON.stringify({plan_file:data.plans[index].file})}), 'history'); }
-      catch (error) { notify(error.message, true); }
+      catch (error) { notify(error, true); }
     });
     row.append(button);
   });
@@ -97,20 +172,20 @@ async function setup(event) {
       ? `Connected. ${issueCount} workspace lookup(s) could not be completed.`
       : `Connected to ${result.workspaces.length} Sentinel workspace(s).`, issueCount > 0);
   } catch (error) {
-    notify(error.message, true);
+    notify(error, true);
   } finally {
     setBusy(button, false);
   }
 }
 
 function runMarkup(run, controls) {
-  const failures = controls && run.failures?.length ? `<details><summary>View failures</summary>${run.failures.map(failure => `<p>${escapeHtml(failure.workspace)} / ${escapeHtml(failure.name)}: ${escapeHtml(failure.error)}</p>`).join('')}</details>` : '';
-  return `<div class="${controls ? 'history-row' : 'timeline-row'}"><div class="row-main"><strong>${escapeHtml(run.operation || 'Azure operation')}</strong><small>${prettyTime(run.completed_at || run.started_at)} · ${run.results} results</small>${failures}</div><div class="actions"><span class="tag ${run.successful ? 'success':'fail'}">${run.successful ? 'SUCCESS':'FAILED'}</span>${controls ? `<button class="secondary mini-danger rollback" data-run="${escapeHtml(run.run_id)}">Rollback</button>` : ''}</div></div>`;
+  const failures = controls && run.failures?.length ? `<details><summary>View failures</summary>${run.failures.map(failure => errorMarkup(failure.error_info || {message:failure.error}, failure.workspace, failure.name)).join('')}</details>` : '';
+  return `<div class="${controls ? 'history-row' : 'timeline-row'}"><div class="row-main"><strong>${escapeHtml(operationName(run.operation))}</strong><small>${prettyTime(run.completed_at || run.started_at)} · ${run.results} results</small>${failures}</div><div class="actions"><span class="tag ${run.successful ? 'success':'fail'}">${run.successful ? 'SUCCESS':'FAILED'}</span>${controls ? `<button class="secondary mini-danger rollback" data-run="${escapeHtml(run.run_id)}">Rollback</button>` : ''}</div></div>`;
 }
 
 async function refresh() {
   try { renderBootstrap(await api('/api/bootstrap')); }
-  catch (error) { notify(error.message, true); }
+  catch (error) { notify(error, true); }
 }
 
 async function refreshCurrentPage() {
@@ -130,7 +205,7 @@ async function refreshCurrentPage() {
     }
     if (view !== 'rules') notify(view === 'review' ? 'Saved preview reloaded. Live Azure data is checked when you apply.' : view === 'changes' ? 'Workspace options and history refreshed. Your draft is preserved.' : 'Page data refreshed.');
   } catch (error) {
-    notify(error.message, true);
+    notify(error, true);
     if (view === 'watchlists') wlStatus(error.message, true);
   } finally { setBusy(button, false); }
 }
@@ -146,14 +221,14 @@ async function loadRules() {
   const button = el('load-rules'); setBusy(button, true, 'Loading…');
   try {
     await fetchRules();
-  } catch (error) { notify(error.message, true); }
+  } catch (error) { notify(error, true); }
   finally { setBusy(button, false); }
 }
 
 async function fetchRules() {
   const result = await api('/api/rules', {method:'POST', body:JSON.stringify({targets:el('rule-target').value})});
   state.rules = result.rules; renderRules();
-  if (result.failures.length) notify(`${result.rules.length} rules loaded; ${result.failures.length} workspace(s) could not be read.`, true);
+  if (result.failures.length) showErrors(result.failures.map(f => ({...f.error_info, message:f.error, workspace:f.workspace})));
   else notify(`${result.rules.length} live rules loaded from ${result.workspace_count} workspace(s).`);
 }
 
@@ -162,6 +237,7 @@ function updatePlanFields() {
   const dynamic = el('dynamic-fields');
   const catalog = operation === 'deploy-catalog';
   el('selector-fields').hidden = catalog; el('skip-row').hidden = catalog;
+  el('selector-fields').querySelectorAll('input,select').forEach(input => input.disabled = catalog);
   const fields = {
     'add-title':'<label class="full">Incident title<input name="title" required placeholder="Known Benign Security Test"></label><label>Condition index (optional)<input name="condition_index" type="number" min="1" placeholder="1"></label>',
     'remove-title':'<label class="full">Incident title<input name="title" required placeholder="Known Benign Security Test"></label><label>Condition index (optional)<input name="condition_index" type="number" min="1" placeholder="1"></label>',
@@ -196,12 +272,12 @@ function renderPlan(result, source = 'changes') {
   el('preview-empty').hidden = true; el('plan-preview').hidden = false;
   el('preview-operation').textContent = isWatchlist ? 'Watchlist row changes' : 'Automation rule changes';
   el('preview-integrity').textContent = `${changes} changes · ${new Set(plan.targets.map(t => t.workspace.key)).size} workspaces`;
-  el('review-context').textContent = `Review this saved ${isWatchlist ? 'watchlist' : 'automation-rule'} plan. Apply writes only the changes shown below; Azure is checked again before each write.`;
+
   el('review-back').textContent = source === 'history' ? 'Back to plans & runs' : 'Back to editor';
   el('preview-summary').innerHTML = plan.targets.map(target => `<div class="plan-row"><div><strong>${escapeHtml(target.display_name || target.rule_id || 'Missing rule')}</strong><small>${escapeHtml(target.workspace.key)} · ${escapeHtml(target.summary)}</small></div><span class="plan-status ${escapeHtml(target.status)}">${escapeHtml(target.status.replaceAll('_',' '))}</span></div>`).join('');
   el('apply-confirmation').value = '';
   el('apply-plan').disabled = changes === 0;
-  if (isWatchlist) {
+  {
     [...el('preview-summary').children].forEach((row, index) => {
       const details = document.createElement('details');
       const heading = document.createElement('summary'); heading.textContent = 'Before / after';
@@ -209,8 +285,8 @@ function renderPlan(result, source = 'changes') {
       const target = plan.targets[index];
       const before = target.before?.itemsKeyValue || {}; const after = target.after?.itemsKeyValue || {};
       const columns = [...new Set([...Object.keys(before), ...Object.keys(after)])];
-      const changed = columns.filter(key => before[key] !== after[key]);
-      content.innerHTML = changed.length ? `<table class="change-values"><thead><tr><th>Column</th><th>Before</th><th>After</th></tr></thead><tbody>${changed.map(key => `<tr><td>${escapeHtml(key)}</td><td>${key in before ? escapeHtml(before[key]) : '<em>Not present</em>'}</td><td>${key in after ? escapeHtml(after[key]) : '<em>Not present</em>'}</td></tr>`).join('')}</tbody></table>` : '<p>No values change in this row.</p>';
+      const changed = isWatchlist ? columns.filter(key => before[key] !== after[key]).map(key => ({path:key,before:before[key],after:after[key]})) : (target.changes || []);
+      content.innerHTML = changed.length ? `<table class="change-values"><thead><tr><th>${isWatchlist ? 'Column' : 'Field'}</th><th>Before</th><th>After</th></tr></thead><tbody>${changed.map(change => `<tr><td>${escapeHtml(change.path)}</td><td>${displayValue(change.before)}</td><td>${displayValue(change.after)}</td></tr>`).join('')}</tbody></table>` : '<p>No changes</p>';
       details.open = true;
       details.append(heading, content); row.append(details);
     });
@@ -222,7 +298,7 @@ function renderPlan(result, source = 'changes') {
 async function createPlan(event) {
   event.preventDefault(); const button = event.submitter; setBusy(button, true, 'Reading Azure…');
   try { const result = await api('/api/plans', {method:'POST', body:JSON.stringify(formPayload(event.currentTarget))}); renderPlan(result); notify('Plan created. Review every target before applying.'); await refresh(); }
-  catch (error) { notify(error.message, true); }
+  catch (error) { notify(error, true); }
   finally { setBusy(button, false); }
 }
 
@@ -231,9 +307,10 @@ async function applyPlan() {
   try {
     const result = await api('/api/apply', {method:'POST', body:JSON.stringify({plan_file:state.planFile, confirmation:el('apply-confirmation').value})});
     const failed = result.report.results.filter(item => item.status === 'failed').length;
-    notify(failed ? `Run ${result.run_id} completed with ${failed} failure(s).` : `Run ${result.run_id} completed and verified.`, !!failed);
+    if (failed) showErrors(result.report.results.filter(item => item.error).map(item => ({...item.error_info,message:item.error,workspace:item.workspace.key,target:item.display_name})));
+    else notify('Changes applied and verified.');
     el('apply-confirmation').value = ''; await refresh(); showView('history');
-  } catch (error) { notify(error.message, true); }
+  } catch (error) { notify(error, true); }
   finally { setBusy(button, false); }
 }
 
@@ -242,9 +319,10 @@ async function rollback() {
   try {
     const result = await api('/api/rollback', {method:'POST', body:JSON.stringify({run_id:state.rollbackRun, confirmation:el('rollback-confirmation').value, force:el('rollback-force').checked})});
     const failed = result.report.results.filter(item => item.status === 'failed').length;
-    notify(failed ? `Rollback completed with ${failed} failure(s).` : 'Rollback completed and verified.', !!failed);
+    if (failed) showErrors(result.report.results.filter(item => item.error).map(item => ({...item.error_info,message:item.error,workspace:item.workspace.key,target:item.display_name})));
+    else notify('Rollback completed and verified.');
     el('rollback-dialog').close(); await refresh();
-  } catch (error) { notify(error.message, true); }
+  } catch (error) { notify(error, true); }
   finally { setBusy(button, false); }
 }
 
@@ -254,7 +332,8 @@ document.addEventListener('click', event => {
   if (rollbackButton) { state.rollbackRun = rollbackButton.dataset.run; el('rollback-confirmation').value=''; el('rollback-force').checked=false; el('rollback-dialog').showModal(); }
 });
 el('review-back').addEventListener('click', () => showView(state.reviewSource));
-el('choose-rule-change').addEventListener('click', () => el('plan-form').scrollIntoView({block:'start'}));
+el('choose-rule-change').addEventListener('click', () => chooseChangeKind('rule'));
+el('choose-watchlist-change').addEventListener('click', () => chooseChangeKind('watchlist'));
 el('refresh').addEventListener('click', refreshCurrentPage); el('load-rules').addEventListener('click', loadRules); el('rule-search').addEventListener('input', renderRules);
 el('operation').addEventListener('change', updatePlanFields); el('selector-type').addEventListener('change', event => { const input = document.querySelector('[name="selector_value"]'); const byName = event.target.value === 'display_name'; el('selector-value-label').childNodes[0].textContent = byName ? 'Rule display name' : 'Rule ID'; input.placeholder = byName ? 'Close Known Benign Incidents' : '00000000-0000-0000-0000-000000000000'; });
 el('plan-form').addEventListener('submit', createPlan); el('apply-plan').addEventListener('click', applyPlan); el('confirm-rollback').addEventListener('click', rollback);
@@ -262,7 +341,43 @@ el('setup-form').addEventListener('submit', setup);
 
 refresh().then(updatePlanFields);
 
-const wl = {lists:[], items:[], workspace:null, alias:null, searchKey:null, selected:null};
+const wl = {lists:[], items:[], workspace:null, alias:null, searchKey:null, selected:null, targets:new Set()};
+function wlAvailableTargets() {
+  return (state.bootstrap?.workspaces || []).filter(workspace => workspace.enabled);
+}
+function renderWlTargets() {
+  const focusedKey = document.activeElement?.dataset?.workspaceKey;
+  const available = wlAvailableTargets();
+  const keys = new Set(available.map(workspace => workspace.key));
+  wl.targets = new Set([...wl.targets].filter(key => keys.has(key)));
+  const query = el('wl-target-search').value.trim().toLowerCase();
+  const shown = available.filter(workspace => [workspace.display_name, workspace.workspace_name, workspace.key].some(value => String(value || '').toLowerCase().includes(query)));
+  el('wl-target-options').innerHTML = shown.map(workspace => `<label class="check workspace-choice"><input type="checkbox" data-workspace-key="${escapeHtml(workspace.key)}" ${wl.targets.has(workspace.key) ? 'checked' : ''}><span><strong>${escapeHtml(workspace.display_name || workspace.workspace_name)}</strong><small>${escapeHtml(workspace.key)}</small></span></label>`).join('') || '<p class="muted">No matching workspaces.</p>';
+  const count = wl.targets.size;
+  const all = count > 0 && count === available.length;
+  el('wl-target-all').checked = all;
+  el('wl-target-all').indeterminate = count > 0 && !all;
+  el('wl-target-all').disabled = available.length === 0;
+  el('wl-target-summary').textContent = all ? `All workspaces (${count})` : count === 1 ? (available.find(workspace => wl.targets.has(workspace.key)).display_name || [...wl.targets][0]) : count ? `${count} workspaces selected` : 'Choose workspaces';
+  el('wl-target-count').textContent = `${count} of ${available.length} workspaces selected`;
+  if (focusedKey) [...el('wl-target-options').querySelectorAll('input')].find(input => input.dataset.workspaceKey === focusedKey)?.focus({preventScroll:true});
+}
+function wlTargetExpression() {
+  if (!wl.targets.size) throw new Error('Select at least one target workspace.');
+  return [...wl.targets].join(',');
+}
+el('wl-target-search').addEventListener('input', renderWlTargets);
+el('wl-target-options').addEventListener('change', event => {
+  const key = event.target.dataset.workspaceKey;
+  if (!key) return;
+  if (event.target.checked) wl.targets.add(key); else wl.targets.delete(key);
+  renderWlTargets();
+});
+el('wl-target-all').addEventListener('change', event => {
+  wl.targets = new Set(event.target.checked ? wlAvailableTargets().map(workspace => workspace.key) : []);
+  renderWlTargets();
+});
+el('wl-target-clear').addEventListener('click', () => { wl.targets.clear(); renderWlTargets(); });
 const wlRequest = payload => api('/api/watchlists', {method:'POST', body:JSON.stringify(payload)});
 function wlStatus(message, error = false) {
   const status = el('wl-status');
@@ -272,8 +387,8 @@ function wlStatus(message, error = false) {
 async function wlBusy(button, action) {
   setBusy(button, true);
   try { await action(); } catch (error) {
-    wlStatus(error.message, true); notify(error.message, true);
-    el('wl-status').scrollIntoView({block:'nearest'});
+    wlStatus(error.message, true); notify(error, true);
+    if (state.view === 'watchlists') el('wl-status').scrollIntoView({block:'nearest'});
   }
   finally { setBusy(button, false); }
 }
@@ -288,22 +403,28 @@ async function wlLoadLists() {
 }
 el('wl-load').addEventListener('click', event => wlBusy(event.currentTarget, wlLoadLists));
 
-async function wlLoadRows(workspace = wl.workspace, alias = wl.alias, preserveEditor = false) {
+async function wlLoadRows(workspace = wl.workspace, alias = wl.alias, preserveEditor = false, fromPlanner = false) {
   wlStatus(`Loading rows from ${alias}…`);
   const result = await wlRequest({request:'items', targets:workspace, alias});
+  if (fromPlanner && (el('wl-source-workspace').value !== workspace || el('wl-source-alias').value !== alias)) return;
   wl.workspace = workspace; wl.alias = alias; wl.items = result.items; wl.searchKey = result.search_key;
   el('wl-content').hidden = false;
   el('wl-title').textContent = `${alias} · ${workspace}`;
   if (!preserveEditor) {
-    el('wl-edit-targets').value = workspace;
+    wl.targets = new Set([workspace]);
+    el('wl-target-search').value = '';
+    el('wl-target-picker').open = false;
+    renderWlTargets();
     el('wl-key').value = result.search_key;
     el('wl-search').value = '';
     wlEdit('add');
   }
   wlRenderRows();
+  el('wl-form').hidden = false;
+  syncSourceSelection(workspace, alias);
   el('wl-browser').hidden = true;
   wlStatus(`${wl.items.length} rows loaded from ${alias}.`);
-  if (!preserveEditor) el('wl-content').scrollIntoView({block:'start'});
+  if (!preserveEditor && state.view === 'watchlists') el('wl-content').scrollIntoView({block:'start'});
 }
 el('wl-back').addEventListener('click', () => {
   el('wl-content').hidden = true; el('wl-browser').hidden = false;
@@ -332,7 +453,7 @@ function wlAddField(key = '', value = '') {
   const name = document.createElement('input'); name.value = key; name.required = true; name.className = 'wl-column-name';
   const valueLabel = document.createElement('label'); valueLabel.textContent = 'Value';
   const input = document.createElement('input'); input.value = value; input.className = 'wl-cell-value';
-  const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'secondary'; remove.textContent = 'Remove field';
+  const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'secondary'; remove.textContent = 'Remove';
   remove.addEventListener('click', () => pair.remove());
   nameLabel.append(name); valueLabel.append(input); pair.append(nameLabel, valueLabel, remove); el('wl-values').append(pair);
 }
@@ -356,16 +477,17 @@ el('wl-rows').addEventListener('click', event => {
   const button = event.target.closest('[data-wl-edit],[data-wl-delete]'); if (!button) return;
   const deleting = button.dataset.wlDelete !== undefined;
   wlEdit(deleting ? 'delete' : 'update', wl.items[Number(deleting ? button.dataset.wlDelete : button.dataset.wlEdit)]);
-  el('wl-form').scrollIntoView({behavior:'smooth', block:'start'});
+  openWatchlistPlanner();
 });
-el('wl-new').addEventListener('click', () => wlEdit('add'));
+el('wl-new').addEventListener('click', () => { wlEdit('add'); openWatchlistPlanner(); });
 el('wl-column').addEventListener('click', () => wlAddField());
 el('wl-action').addEventListener('change', wlFields);
 el('wl-form').addEventListener('submit', event => {
   event.preventDefault();
   wlBusy(event.submitter, async () => {
     const action = el('wl-action').value;
-    const payload = {request:'plan', action, targets:el('wl-edit-targets').value, alias:wl.alias,
+    if (!wl.alias || el('wl-form').hidden) throw new Error('Select a watchlist first.');
+    const payload = {request:'plan', action, targets:wlTargetExpression(), alias:wl.alias,
       key_column:el('wl-key').value, key_value:el('wl-match').value};
     if (['update','delete'].includes(action) && wl.selected && payload.targets.trim() === wl.workspace &&
         payload.key_column === wl.selected.column && payload.key_value === wl.selected.value) {
@@ -381,7 +503,7 @@ el('wl-form').addEventListener('submit', event => {
       if (file.size > 750000) throw new Error('Use the CLI to import CSV files larger than 750 KB');
       payload.csv = await file.text(); payload.mode = el('wl-mode').value;
     }
-    const result = await wlRequest(payload); renderPlan(result, 'watchlists'); await refresh();
+    const result = await wlRequest(payload); renderPlan(result, 'changes'); await refresh();
     notify('Review the before and after values, then apply the saved plan.');
   });
 });
