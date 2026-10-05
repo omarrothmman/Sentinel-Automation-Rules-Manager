@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from . import watchlists
 from .azure import ArmClient
 from .catalog import CatalogRule
 from .errors import (
@@ -62,6 +63,8 @@ def _seal(plan: dict[str, Any]) -> dict[str, Any]:
 def validate_plan(plan: Any) -> dict[str, Any]:
     if not isinstance(plan, dict):
         raise PlanIntegrityError("Plan root must be an object")
+    if plan.get("resource_type") == "watchlist-items":
+        return watchlists.validate_plan(plan)
     if plan.get("plan_version") != PLAN_VERSION:
         raise PlanIntegrityError(f"Unsupported plan version: {plan.get('plan_version')!r}")
     expected = plan.get("integrity")
@@ -324,6 +327,8 @@ def _workspace_from_plan(value: Any) -> Workspace:
 
 
 def plan_summary(plan: dict[str, Any]) -> str:
+    if plan.get("resource_type") == "watchlist-items":
+        return watchlists.summary(plan)
     counts: dict[str, int] = {}
     for target in plan["targets"]:
         status = str(target["status"])
@@ -424,6 +429,8 @@ def _summary_truncate(value: str, width: int) -> str:
 def apply_plan(
     client: ArmClient, plan: dict[str, Any], state_dir: Path
 ) -> tuple[str, dict[str, Any]]:
+    if plan.get("resource_type") == "watchlist-items":
+        return watchlists.apply_plan(client, plan, state_dir)
     validate_plan(plan)
     if client.api_version != plan["api_version"]:
         raise PlanIntegrityError(
@@ -520,6 +527,8 @@ def rollback_run(
 ) -> dict[str, Any]:
     run_dir = state_dir / "backups" / safe_key(run_id)
     manifest = read_json(run_dir / "manifest.json")
+    if isinstance(manifest, dict) and manifest.get("resource_type") == "watchlist-items":
+        return watchlists.rollback_run(client, state_dir, run_id, force)
     if not isinstance(manifest, dict) or not isinstance(manifest.get("results"), list):
         raise ConfigurationError(f"Invalid run manifest for {run_id}")
     if manifest.get("api_version") != client.api_version:

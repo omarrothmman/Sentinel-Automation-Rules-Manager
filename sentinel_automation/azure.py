@@ -267,3 +267,80 @@ class ArmClient:
     def delete_rule(self, workspace: Workspace, rule_id: str, etag: str | None = None) -> None:
         headers = {"If-Match": etag} if etag else None
         self._request("DELETE", self._resource_url(workspace, rule_id), headers=headers)
+
+    def _watchlist_url(
+        self, workspace: Workspace, alias: str | None = None, item_id: str | None = None
+    ) -> str:
+        path = "watchlists"
+        if alias is not None:
+            path += "/" + quote(alias, safe="")
+        if item_id is not None:
+            path += "/watchlistItems/" + quote(item_id, safe="")
+        return self._workspace_provider_url(workspace, path)
+
+    def _list_watchlist_resources(self, url: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        visited: set[str] = set()
+        while url:
+            if url in visited:
+                raise AzureRequestError("Azure list response contains a pagination loop")
+            visited.add(url)
+            response = self._request("GET", url)
+            if not response or not isinstance(response.get("value"), list):
+                raise AzureRequestError("Invalid watchlist list response")
+            for row in response["value"]:
+                if not isinstance(row, dict):
+                    raise AzureRequestError("Invalid watchlist resource")
+                if not row.get("properties", {}).get("isDeleted", False):
+                    rows.append(row)
+            url = response.get("nextLink")
+            if url is not None and not isinstance(url, str):
+                raise AzureRequestError("Invalid watchlist nextLink")
+        return rows
+
+    def list_watchlists(self, workspace: Workspace) -> list[dict[str, Any]]:
+        return self._list_watchlist_resources(self._watchlist_url(workspace))
+
+    def get_watchlist(self, workspace: Workspace, alias: str) -> dict[str, Any] | None:
+        return self._request("GET", self._watchlist_url(workspace, alias), allow_not_found=True)
+
+    def list_watchlist_items(self, workspace: Workspace, alias: str) -> list[dict[str, Any]]:
+        return self._list_watchlist_resources(
+            self._watchlist_url(workspace, alias) + "/watchlistItems"
+        )
+
+    def get_watchlist_item(
+        self, workspace: Workspace, alias: str, item_id: str
+    ) -> dict[str, Any] | None:
+        result = self._request(
+            "GET", self._watchlist_url(workspace, alias, item_id), allow_not_found=True
+        )
+        return result
+
+    def put_watchlist_item(
+        self,
+        workspace: Workspace,
+        alias: str,
+        item_id: str,
+        properties: dict[str, Any],
+        etag: str | None,
+    ) -> None:
+        body: dict[str, Any] = {"properties": {**properties, "isDeleted": False}}
+        headers = {"Content-Type": "application/json"}
+        if etag:
+            body["etag"] = etag
+            headers["If-Match"] = etag
+        else:
+            headers["If-None-Match"] = "*"
+        self._request(
+            "PUT", self._watchlist_url(workspace, alias, item_id), body=body, headers=headers
+        )
+
+    def delete_watchlist_item(
+        self, workspace: Workspace, alias: str, item_id: str, etag: str | None = None
+    ) -> None:
+        self._request(
+            "DELETE",
+            self._watchlist_url(workspace, alias, item_id),
+            headers={"If-Match": etag} if etag else None,
+        )

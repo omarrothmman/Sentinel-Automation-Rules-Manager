@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from . import watchlists
 from .auth import create_credential
 from .azure import DEFAULT_API_VERSION, ArmClient
 from .catalog import load_catalog, select_catalog_rules
@@ -318,6 +319,62 @@ class GuiService:
         sealed = save_plan(plan, path)
         return {"plan": sealed, "plan_file": filename}
 
+    def watchlists(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self._require_client()
+        workspaces = self._require_inventory().select(
+            _required_string(payload.get("targets"), "Targets")
+        )
+        action = payload.get("request", "list")
+        with self._lock:
+            if action == "plan":
+                plan = watchlists.build_plan(client, workspaces, payload)
+                filename = f"{timestamp_id()}-{plan['operation']}-{secrets.token_hex(3)}.json"
+                sealed = save_plan(plan, self.config.state_dir / "plans" / filename)
+                return {"plan": sealed, "plan_file": filename}
+            if action == "list":
+                rows, failures = [], []
+                for workspace in workspaces:
+                    try:
+                        for resource in client.list_watchlists(workspace):
+                            props = resource.get("properties", {})
+                            rows.append(
+                                {
+                                    "workspace": workspace.key,
+                                    "alias": props.get("watchlistAlias") or resource.get("name"),
+                                    "display_name": props.get("displayName", ""),
+                                    "search_key": props.get("itemsSearchKey", ""),
+                                }
+                            )
+                    except Exception as exc:
+                        failures.append({"workspace": workspace.key, "error": str(exc)})
+                return {"watchlists": rows, "failures": failures}
+            if action not in ("items", "export") or len(workspaces) != 1:
+                raise ConfigurationError("Choose one workspace to open or export a watchlist")
+            alias = _required_string(payload.get("alias"), "Watchlist alias")
+            definition = client.get_watchlist(workspaces[0], alias)
+            if not definition:
+                raise ConfigurationError("Watchlist does not exist")
+            search_key = definition["properties"].get("itemsSearchKey", "")
+            resources = client.list_watchlist_items(workspaces[0], alias)
+            if action == "export":
+                return {"csv": watchlists.export_csv(resources, search_key)}
+            return {
+                "items": [
+                    {
+                        "item_id": watchlists.item_id(r),
+                        "values": watchlists.item_properties(r)["itemsKeyValue"],
+                    }
+                    for r in resources
+                ],
+                "search_key": search_key,
+            }
+
+    def open_plan(self, payload: dict[str, Any]) -> dict[str, Any]:
+        path = self._plan_path(payload.get("plan_file"))
+        plan = load_plan(path)
+        _validate_plan_scope(plan, self._require_inventory())
+        return {"plan": plan, "plan_file": path.name}
+
     def apply(self, payload: dict[str, Any]) -> dict[str, Any]:
         client = self._require_client()
         inventory = self._require_inventory()
@@ -338,6 +395,8 @@ class GuiService:
         if safe_key(run_id) != run_id:
             raise ConfigurationError("Invalid run ID")
         manifest = read_json(self.config.state_dir / "backups" / run_id / "manifest.json")
+        if isinstance(manifest, dict) and manifest.get("resource_type") == "watchlist-items":
+            _validate_plan_scope({"targets": manifest["results"]}, self._require_inventory())
         api_version = manifest.get("api_version") if isinstance(manifest, dict) else None
         if api_version != client.api_version:
             raise ConfigurationError(
@@ -405,6 +464,17 @@ class GuiService:
                     "completed_at": manifest.get("completed_at"),
                     "successful": manifest.get("successful"),
                     "results": len(results) if isinstance(results, list) else 0,
+                    "failures": [
+                        {
+                            "workspace": item.get("workspace", {}).get("key"),
+                            "name": item.get("display_name"),
+                            "error": item.get("error"),
+                        }
+                        for item in results
+                        if isinstance(item, dict) and item.get("error")
+                    ]
+                    if isinstance(results, list)
+                    else [],
                 }
             )
         return runs[:50]
@@ -477,6 +547,8 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         routes: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "/api/setup": self.server.service.setup,
             "/api/rules": self.server.service.list_rules,
+            "/api/watchlists": self.server.service.watchlists,
+            "/api/plan": self.server.service.open_plan,
             "/api/plans": self.server.service.create_plan,
             "/api/apply": self.server.service.apply,
             "/api/rollback": self.server.service.rollback,
