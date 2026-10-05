@@ -88,6 +88,49 @@ class AzureClientTests(unittest.TestCase):
         client, _ = self._client([FakeResponse(404, {"error": {"code": "NotFound"}})])
         self.assertFalse(client.is_sentinel_workspace(workspace()))
 
+    def test_watchlist_pagination_filters_deleted_rows(self) -> None:
+        next_link = "https://management.azure.com/next?api-version=2025-09-01"
+        client, session = self._client(
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "value": [
+                            {"name": "one"},
+                            {"name": "deleted", "properties": {"isDeleted": True}},
+                        ],
+                        "nextLink": next_link,
+                    },
+                ),
+                FakeResponse(200, {"value": [{"name": "two"}]}),
+            ]
+        )
+        rows = client.list_watchlist_items(workspace(), "alias with space")
+        self.assertEqual([r["name"] for r in rows], ["one", "two"])
+        self.assertIn("/watchlists/alias%20with%20space/watchlistItems", session.calls[0]["url"])
+
+    def test_watchlist_write_etag_body_and_conditional_headers(self) -> None:
+        client, session = self._client(
+            [FakeResponse(200, {}), FakeResponse(201, {}), FakeResponse(204)]
+        )
+        props = {"itemsKeyValue": {"IP": "10.0.0.1"}}
+        client.put_watchlist_item(workspace(), "IPs", "row", props, "etag")
+        client.put_watchlist_item(workspace(), "IPs", "new", props, None)
+        client.delete_watchlist_item(workspace(), "IPs", "row", "etag")
+        self.assertEqual(session.calls[0]["headers"]["If-Match"], "etag")
+        self.assertEqual(session.calls[0]["json"]["etag"], "etag")
+        self.assertFalse(session.calls[0]["json"]["properties"]["isDeleted"])
+        self.assertEqual(session.calls[1]["headers"]["If-None-Match"], "*")
+        self.assertEqual(session.calls[2]["headers"]["If-Match"], "etag")
+
+    def test_watchlist_get_preserves_tombstone_etag_for_rollback(self) -> None:
+        client, _ = self._client(
+            [FakeResponse(200, {"etag": "deleted-etag", "properties": {"isDeleted": True}})]
+        )
+        self.assertEqual(
+            client.get_watchlist_item(workspace(), "IPs", "row")["etag"], "deleted-etag"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

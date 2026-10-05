@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import __version__, watchlist_cli
 from .auth import create_credential
 from .azure import DEFAULT_API_VERSION, ArmClient
 from .catalog import (
@@ -91,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug", action="store_true", help="Show a traceback for unexpected errors"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+    watchlist_cli.add_parser(subparsers)
 
     subparsers.add_parser("login", help="Authenticate interactively and verify an ARM token")
     discover_parser = subparsers.add_parser(
@@ -422,7 +423,9 @@ def _print_results(report: dict[str, Any], title: str) -> None:
             result["workspace"]["key"],
             result.get("display_name") or result.get("rule_id"),
             status_text(result.get("status", "unknown")),
-            _result_detail(result),
+            (result.get("error") or "Watchlist row " + str(result.get("status", "unknown")))
+            if report.get("resource_type") == "watchlist-items"
+            else _result_detail(result),
         )
         for result in results
     ]
@@ -432,7 +435,9 @@ def _print_results(report: dict[str, Any], title: str) -> None:
             f"{len(results)} targets | Successful: {successful} | Failed: {len(results) - successful}",
             (
                 Column("TARGET", 20, 36),
-                Column("RULE", 24, 54),
+                Column(
+                    "ROW" if report.get("resource_type") == "watchlist-items" else "RULE", 24, 54
+                ),
                 Column("STATUS", 18, 20),
                 Column("RESULT", 34, 100),
             ),
@@ -539,14 +544,21 @@ def run(args: argparse.Namespace) -> int:
         plan = load_plan(plan_path)
         _validate_plan_scope(plan, inventory)
         print(plan_summary(plan))
-        changes = sum(target["status"] in ("modify", "create") for target in plan["targets"])
+        changes = sum(
+            target["status"] in ("modify", "create", "delete") for target in plan["targets"]
+        )
         _confirm(f"Apply {changes} Azure change(s)?", args.yes)
         client = _client(args, inventory, api_version=plan["api_version"])
         try:
             run_id, report = apply_plan(client, plan, args.state_dir)
         finally:
             client.close()
-        _print_results(report, "AUTOMATION RULE APPLY RESULTS")
+        _print_results(
+            report,
+            "WATCHLIST APPLY RESULTS"
+            if plan.get("resource_type")
+            else "AUTOMATION RULE APPLY RESULTS",
+        )
         print(f"\nRun ID:   {run_id}")
         print(f"Backups:  {(args.state_dir / 'backups' / run_id).resolve()}")
         return 0 if report["successful"] else 2
@@ -559,17 +571,26 @@ def run(args: argparse.Namespace) -> int:
         api_version = manifest.get("api_version") if isinstance(manifest, dict) else None
         if not isinstance(api_version, str):
             raise ConfigurationError(f"Run '{args.run}' has no valid API version")
+        if manifest.get("resource_type") == "watchlist-items":
+            _validate_plan_scope({"targets": manifest["results"]}, inventory)
         _confirm(f"Rollback changes from run {args.run}?", args.yes)
         client = _client(args, inventory, api_version=api_version)
         try:
             report = rollback_run(client, args.state_dir, args.run, args.force)
         finally:
             client.close()
-        _print_results(report, "AUTOMATION RULE ROLLBACK RESULTS")
+        _print_results(
+            report,
+            "WATCHLIST ROLLBACK RESULTS"
+            if manifest.get("resource_type")
+            else "AUTOMATION RULE ROLLBACK RESULTS",
+        )
         return 0 if report["successful"] else 2
 
     client = _client(args, inventory)
     try:
+        if args.command == "watchlists":
+            return watchlist_cli.run(args, inventory, client)
         if args.command == "login":
             client.authenticate()
             print("AZURE AUTHENTICATION\nStatus:  SUCCESS\nMode:    " + args.auth)

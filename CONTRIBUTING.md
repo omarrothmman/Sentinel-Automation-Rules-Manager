@@ -1,7 +1,7 @@
 # Contributing
 
-Contributions should preserve the tool's plan-before-apply safety model and automation-rules-only
-scope.
+Contributions should preserve the tool's plan-before-apply safety model for automation rules
+and watchlist rows.
 
 ## Local setup
 

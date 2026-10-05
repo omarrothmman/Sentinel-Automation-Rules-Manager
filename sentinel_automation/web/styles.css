@@ -293,3 +293,19 @@ dialog p { margin: 10px 0 18px; color: var(--muted); }
   .table-tools input { width: 100%; }
   .confirm-box > div { flex-direction: column; }
 }
+.wl-field { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 4px; }
+#wl-content { margin-top: 24px; }
+#wl-status { margin: 12px 0; padding: 12px; background: var(--accent-soft); border-radius: 4px; overflow-wrap: anywhere; }
+#wl-status.wl-error { color: var(--danger); border: 1px solid var(--danger); }
+#wl-form { margin-top: 20px; padding: 20px; }
+#wl-form > * + * { margin-top: 16px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.plan-row details { grid-column: 1 / -1; min-width: 0; }
+.plan-row pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.change-choices { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+.change-choices [aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.change-editor { max-width: 720px; }
+#view-review .plan-summary { max-height: none; }
+.change-values { table-layout: fixed; width: 100%; margin: 12px 0; }
+.change-values td { white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+#apply-plan { min-width: 130px; flex-shrink: 0; }

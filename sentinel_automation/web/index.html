@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="__CSRF_TOKEN__">
-  <title>Sentinel Automation Rules Manager</title>
+  <title>Sentinel Manager</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
 </head>
@@ -13,7 +13,7 @@
 
   <main id="onboarding" class="onboarding" hidden>
     <form id="setup-form" class="setup-panel">
-      <div class="setup-brand"><strong>Sentinel</strong><span>Automation rules manager</span></div>
+      <div class="setup-brand"><strong>Sentinel</strong><span>Rules and watchlists</span></div>
       <h1 id="setup-title">Connect to Microsoft Azure</h1>
       <p id="setup-copy">Sign in to find the Microsoft Sentinel workspaces you can manage.</p>
       <label>Authentication method
@@ -33,10 +33,11 @@
 
   <div class="shell" id="app-shell" hidden>
     <aside class="sidebar">
-      <div class="brand"><strong>Sentinel</strong><small>Automation rules</small></div>
+      <div class="brand"><strong>Sentinel</strong><small>Rules and watchlists</small></div>
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-view="overview">Overview</button>
         <button class="nav-item" data-view="rules">Automation rules</button>
+        <button class="nav-item" data-view="watchlists">Watchlists</button>
         <button class="nav-item" data-view="changes">Plan a change</button>
         <button class="nav-item" data-view="history">Plans &amp; runs</button>
       </nav>
@@ -54,8 +55,7 @@
 
       <section class="view active" id="view-overview">
         <div class="section-intro">
-          <div><h2>Workspace overview</h2><p>Inventory and recent activity</p></div>
-          <button class="primary" data-go="rules" type="button">View automation rules</button>
+          <p>Connected workspaces and recent activity across rules and watchlists.</p>
         </div>
         <div class="metrics">
           <article><small>Enabled workspaces</small><strong id="metric-workspaces">-</strong></article>
@@ -65,7 +65,13 @@
         </div>
         <div class="grid two overview-grid">
           <section class="panel">
-            <div class="panel-head"><h3>Connected workspaces</h3><button class="text-button" data-go="rules" type="button">View rules</button></div>
+            <div class="panel-head">
+              <h3>Connected workspaces</h3>
+              <div class="actions">
+                <button class="text-button" data-go="rules" type="button">View rules</button>
+                <button class="text-button" data-go="watchlists" type="button">View watchlists</button>
+              </div>
+            </div>
             <div id="workspace-list" class="workspace-list"></div>
           </section>
           <section class="panel">
@@ -77,7 +83,7 @@
 
       <section class="view" id="view-rules">
         <div class="section-intro">
-          <div><h2>Automation rules</h2><p>Live status from the selected workspaces</p></div>
+          <p>Live status from the selected workspaces</p>
           <div class="toolbar">
             <select id="rule-target" aria-label="Workspace"><option value="all">All enabled workspaces</option></select>
             <button class="primary" id="load-rules" type="button">Load rules</button>
@@ -97,10 +103,51 @@
         </div>
       </section>
 
+      <section class="view" id="view-watchlists">
+        <div class="section-intro">
+          <p>Browse and edit rows in existing Sentinel watchlists</p>
+          <div class="toolbar"><select id="wl-target" aria-label="Watchlist workspace"></select><button id="wl-load" class="primary" type="button">Load watchlists</button></div>
+        </div>
+        <p id="wl-status" role="status" aria-live="polite" hidden></p>
+        <div id="wl-browser" class="panel table-panel"><div class="table-wrap"><table>
+          <thead><tr><th>Watchlist</th><th>Workspace</th><th>Search key</th><th>Action</th></tr></thead>
+          <tbody id="wl-lists"><tr><td colspan="4" class="empty">Load watchlists to begin.</td></tr></tbody>
+        </table></div></div>
+        <section id="wl-content" hidden>
+          <div class="section-intro"><div><h3 id="wl-title"></h3><p id="wl-count"></p></div>
+            <div class="toolbar"><button id="wl-back" class="secondary" type="button">Back to watchlists</button><button id="wl-reload" class="secondary" type="button">Refresh rows</button><button id="wl-export" class="secondary" type="button">Export CSV</button><button id="wl-new" class="primary" type="button">Add row</button></div>
+          </div>
+          <div class="panel table-panel"><div class="table-tools"><input id="wl-search" type="search" aria-label="Search watchlist rows" placeholder="Search row values"></div><div class="table-wrap"><table><thead id="wl-head"></thead><tbody id="wl-rows"></tbody></table></div></div>
+          <form id="wl-form" class="panel">
+            <h3>Plan watchlist changes</h3>
+            <div class="form-grid">
+              <label>Operation<select id="wl-action"><option value="add">Add row</option><option value="update">Update row</option><option value="delete">Delete row</option><option value="import">Import CSV</option></select></label>
+              <label>Target workspace keys or tags<input id="wl-edit-targets" required placeholder="customer-a,customer-b or all"></label>
+              <label>Match column<input id="wl-key" required></label>
+              <label id="wl-match-label">Existing row match value<input id="wl-match"></label>
+            </div>
+            <p class="muted">Rows match by exact, case-sensitive column values. Use a column with unique values when applying across workspaces.</p>
+            <div id="wl-values" class="form-grid"></div>
+            <button id="wl-column" class="secondary" type="button">Add column</button>
+            <div id="wl-import" hidden>
+              <label>CSV file<input id="wl-file" type="file" accept=".csv,text/csv"></label>
+              <label>Import behavior<select id="wl-mode"><option value="merge">Merge: add or update CSV rows; keep other rows</option><option value="replace">Replace: also delete rows absent from CSV</option></select></label>
+              <p class="muted">CSV rows replace the values of matching rows. Include all columns you want to retain.</p>
+            </div>
+            <button class="primary" type="submit">Preview changes</button>
+          </form>
+        </section>
+      </section>
+
       <section class="view" id="view-changes">
-        <div class="section-intro"><h2>Plan a change</h2></div>
-        <div class="grid change-grid">
+        <div class="section-intro"><p>Create a preview first. Review it on the next page before applying anything to Azure.</p></div>
+        <div class="change-choices">
+          <button class="secondary" id="choose-rule-change" type="button" aria-pressed="true">Automation rule</button>
+          <button class="secondary" data-go="watchlists" type="button">Watchlist rows — choose a watchlist</button>
+        </div>
+        <div class="change-editor">
           <form id="plan-form" class="panel form-panel">
+            <p class="muted">Configure an automation-rule change below. For watchlist changes, open a watchlist and edit its rows.</p>
             <div class="step-label"><span>1</span><strong>Choose the operation</strong></div>
             <label>Operation<select name="operation" id="operation"><option value="add-title">Add incident title</option><option value="remove-title">Remove incident title</option><option value="set-enabled">Enable or disable rule</option><option value="add-condition">Add condition</option><option value="remove-condition">Remove condition</option><option value="deploy-catalog">Deploy from catalog</option></select></label>
             <div class="step-label"><span>2</span><strong>Select scope and rule</strong></div>
@@ -111,10 +158,15 @@
             </div>
             <div class="dynamic-fields" id="dynamic-fields"></div>
             <label class="check" id="skip-row"><input type="checkbox" name="skip_missing" checked><span>Skip workspaces where this rule is missing</span></label>
-            <button class="primary wide" type="submit">Generate plan</button>
+            <button class="primary wide" type="submit">Preview rule changes</button>
           </form>
+        </div>
+      </section>
+
+      <section class="view" id="view-review">
+        <div class="section-intro"><p id="review-context">Review the saved changes below. Nothing is written until you apply this plan.</p><button class="secondary" id="review-back" type="button">Back to editor</button></div>
           <section class="panel preview-panel">
-            <div class="preview-empty" id="preview-empty"><h3>No plan generated</h3><p>Plan details will appear here.</p></div>
+            <div class="preview-empty" id="preview-empty"><p>No plan selected. Create a change or open a saved plan from Plans &amp; runs.</p></div>
             <div id="plan-preview" hidden>
               <div class="panel-head"><h3 id="preview-operation">Change plan</h3><span id="preview-integrity" class="hash"></span></div>
               <div id="preview-summary" class="plan-summary"></div>
@@ -124,11 +176,10 @@
               </div>
             </div>
           </section>
-        </div>
       </section>
 
       <section class="view" id="view-history">
-        <div class="section-intro"><h2>Plans &amp; runs</h2></div>
+        <div class="section-intro"><p>Review saved plans, inspect results, or roll back an applied run.</p></div>
         <div class="grid two">
           <section class="panel"><div class="panel-head"><h3>Generated plans</h3></div><div id="plans-list" class="history-list"></div></section>
           <section class="panel"><div class="panel-head"><h3>Applied runs</h3></div><div id="runs-list" class="history-list"></div></section>
@@ -140,9 +191,9 @@
     <form method="dialog">
       <button class="dialog-close" value="cancel" aria-label="Close">Close</button>
       <h3>Rollback this run?</h3>
-      <p>The manager will verify the live rule state before restoring its backup. Type <strong>ROLLBACK</strong> to confirm.</p>
+      <p>The manager will verify the live state before restoring the backed-up rules or watchlist rows. Type <strong>ROLLBACK</strong> to confirm.</p>
       <input id="rollback-confirmation" autocomplete="off" aria-label="Rollback confirmation" placeholder="Type ROLLBACK">
-      <label class="check"><input type="checkbox" id="rollback-force"><span>Force if the rule changed after deployment</span></label>
+      <label class="check"><input type="checkbox" id="rollback-force"><span>Force if the data changed after this run</span></label>
       <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button type="button" class="danger" id="confirm-rollback">Rollback run</button></div>
     </form>
   </dialog>

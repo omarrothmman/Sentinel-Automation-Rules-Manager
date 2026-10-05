@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/actions/workflows/ci.yml)
 
-Manage Microsoft Sentinel **automation rules** across one or many workspaces, including workspaces delegated through Azure Lighthouse. Use the command line or the optional local browser interface.
+Manage Microsoft Sentinel **automation rules and watchlist rows** across one or many workspaces, including workspaces delegated through Azure Lighthouse. Use the command line or the optional local browser interface.
 
 The tool separates changes into two steps: `plan` previews and saves a change without writing to Azure; `apply` checks the live rule again, backs it up, writes the change, and verifies it. Applied runs can be rolled back.
 
@@ -141,6 +141,48 @@ Run `sentinel-auto --help` or add `--help` after any command for its exact synta
 **Rule selector:** For existing-rule operations, provide either `--display-name "Exact rule name"` or `--rule-id UUID`. A display name must match exactly (case-insensitively); ambiguous names cause an error. Use a display name when the same logical rule has different IDs across workspaces.
 
 **Planning details:** `--skip-missing` records absent rules as skipped; it does not ignore permission or Azure errors. `--condition-index` is 1-based when several conditions match. `--out PATH` chooses the plan file; otherwise plans go under `.sentinel-automation/plans/`. For catalog deployments, `--rules` accepts comma-separated logical names or `all`. For deployments, `--if-exists` defaults to `fail`; `skip` leaves an existing rule alone, and `update` plans to replace its complete definition.
+
+## Watchlists (GUI and CLI)
+
+Open **Watchlists** in the browser interface, load a workspace's watchlists, and choose **Open**.
+Search the row table, select **Edit** or **Delete**, or choose **Add row**. **Import CSV** is available
+in the operation selector, and **Export CSV** downloads the current watchlist. Use **Refresh rows**
+to see changes applied through another session or the CLI.
+
+Choose **Preview changes** to save a plan and open the separate **Review changes** page. Review each row's **Before / after** table,
+then type `APPLY` and apply it. Saved plans from either interface can be reopened with **Review** in
+**Plans & runs**. The same history provides rollback for applied watchlist changes.
+
+The top **Refresh** button reloads the current page: live rules, the watchlist list, or the open
+watchlist's rows. Refreshing rows preserves your draft edits and search. On **Review changes**, it
+reloads the saved preview; Azure is checked again when applying. **Plan a change** is for starting
+a new draft, and never displays an unrelated saved preview beside the editor.
+
+CLI examples (global options such as `--auth cli` go before `watchlists`):
+
+```powershell
+sentinel-auto watchlists list --targets all
+sentinel-auto watchlists items --targets customer-a --alias AllowedIPs
+sentinel-auto watchlists export --targets customer-a --alias AllowedIPs --output allowed-ips.csv
+
+sentinel-auto watchlists plan add --targets customer-a --alias AllowedIPs --key-column IP --set IP=10.0.0.1 --set "Description=Office network"
+sentinel-auto watchlists plan update --targets "customer-a,customer-b" --alias AllowedIPs --key-column IP --key-value 10.0.0.1 --set "Description=Updated description"
+sentinel-auto watchlists plan delete --targets customer-a --alias AllowedIPs --key-column IP --key-value 10.0.0.1
+
+sentinel-auto watchlists import --targets customer-a --alias AllowedIPs --key-column IP --file allowed-ips.csv
+sentinel-auto apply --plan PLAN_FILE.json
+sentinel-auto rollback --run RUN_ID
+```
+
+- Watchlists must already exist. This feature edits their rows; it does not create watchlists or change their alias, search key, or metadata.
+- Matching uses an explicit column and exact, case-sensitive values. Blank or duplicate match values are rejected. Matching rows can have different item IDs in different workspaces. For a single workspace, CLI update/delete also accepts `--item-id UUID` instead of a match column/value; the GUI uses the selected row's ID when editing in its original workspace.
+- Row updates merge the supplied fields into the existing row. CSV imports replace all values of matching rows, so include every column you want to retain. The watchlist's search key must have a non-empty value.
+- CSV import defaults to `--mode merge`: add new rows, update matching rows, keep all other rows. `--mode replace` also plans deletion of rows missing from the CSV. Empty imports are rejected. Import only saves a local plan until you apply it.
+- CSV export selects one workspace at a time. GUI imports accept files up to 750 KB; larger imports use the CLI. CSV supports UTF-8, quoted commas, and multiline values.
+- Plans recheck the watchlist contents before the first write in each workspace and recheck each affected row before writing. Writes use available ETags and are verified. These are individual Azure requests, not an atomic transaction across rows or workspaces; another writer can still race between requests, subject to Azure's conditional request support.
+- Backups and attempted writes are saved in the run manifest before each write. Rollback restores original row values (including deleted rows) and removes newly added rows. It does not restore Azure-generated audit timestamps. Later edits block rollback unless explicitly forced after review. Per-row failures are retained in the manifest; successful changes in other workspaces are not automatically undone.
+
+API reference: [Microsoft Sentinel watchlist items](https://learn.microsoft.com/en-us/rest/api/securityinsights/watchlist-items/create-or-update?view=rest-securityinsights-2025-09-01).
 
 ## License
 
