@@ -8,7 +8,7 @@ and watchlist rows.
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip ".[dev]"
+python -m pip install --upgrade pip ".[dev,mcp]"
 ```
 
 ## Before opening a pull request
