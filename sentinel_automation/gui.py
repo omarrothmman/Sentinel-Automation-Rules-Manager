@@ -20,7 +20,7 @@ from .azure import DEFAULT_API_VERSION, ArmClient
 from .catalog import load_catalog, select_catalog_rules
 from .cli import _validate_plan_scope
 from .discovery import discover_sentinel_workspaces, inventory_document
-from .errors import ConfigurationError, SentinelAutomationError
+from .errors import ConfigurationError, SentinelAutomationError, present_errors
 from .inventory import Inventory
 from .plans import (
     apply_plan,
@@ -573,7 +573,9 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
 
     def _json(self, status: HTTPStatus, value: dict[str, Any]) -> None:
         self._send(
-            status, json.dumps(value, ensure_ascii=False).encode("utf-8"), "application/json"
+            status,
+            json.dumps(present_errors(value), ensure_ascii=False).encode("utf-8"),
+            "application/json",
         )
 
     def _send(self, status: HTTPStatus, content: bytes, content_type: str) -> None:

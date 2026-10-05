@@ -149,6 +149,12 @@ Search the row table, select **Edit** or **Delete**, or choose **Add row**. **Im
 in the operation selector, and **Export CSV** downloads the current watchlist. Use **Refresh rows**
 to see changes applied through another session or the CLI.
 
+In **Target workspaces**, open the picker and check the workspaces to change. Search by name or key,
+or select **All workspaces** to select every enabled workspace, including ones hidden by the search.
+The selection count includes all selected workspaces. Opening a watchlist starts with just its own
+workspace selected; refreshing preserves your selection. Every selected workspace must contain the
+same watchlist alias.
+
 Choose **Preview changes** to save a plan and open the separate **Review changes** page. Review each row's **Before / after** table,
 then type `APPLY` and apply it. Saved plans from either interface can be reopened with **Review** in
 **Plans & runs**. The same history provides rollback for applied watchlist changes.
@@ -187,3 +193,5 @@ API reference: [Microsoft Sentinel watchlist items](https://learn.microsoft.com/
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+The **Plan a change** page has Automation rule and Watchlist tabs. The Watchlist tab includes source workspace/watchlist selection and a searchable target-workspace checklist. Errors in dialogs and saved runs show a readable message, code, HTTP status, request ID, and additional details when supplied by Azure.
