@@ -5,6 +5,35 @@ const el = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
 const prettyTime = value => value ? new Date(value).toLocaleString() : 'In progress';
 
+const themeKey = 'sentinel-manager-theme';
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+function savedTheme() {
+  try { return localStorage.getItem(themeKey); }
+  catch { return null; }
+}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+  document.querySelectorAll('[data-theme-toggle]').forEach(button => {
+    const dark = theme === 'dark';
+    button.textContent = dark ? 'Light mode' : 'Dark mode';
+    button.setAttribute('aria-pressed', String(dark));
+    button.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+  });
+}
+function chooseTheme(theme) {
+  applyTheme(theme);
+  try { localStorage.setItem(themeKey, theme); }
+  catch { /* The theme still applies when local storage is unavailable. */ }
+}
+applyTheme(savedTheme() || (systemTheme.matches ? 'dark' : 'light'));
+document.querySelectorAll('[data-theme-toggle]').forEach(button => button.addEventListener('click', () => {
+  chooseTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+}));
+systemTheme.addEventListener('change', event => {
+  if (!savedTheme()) applyTheme(event.matches ? 'dark' : 'light');
+});
+
 function operationName(operation) {
   return ({'watchlists-add':'Add watchlist rows', 'watchlists-update':'Update watchlist rows', 'watchlists-delete':'Delete watchlist rows', 'watchlists-import':'Import watchlist rows', 'add-title':'Add incident title', 'remove-title':'Remove incident title', 'set-enabled':'Change rule state', 'add-condition':'Add condition', 'remove-condition':'Remove condition', 'deploy-catalog':'Deploy catalog rules', deploy:'Deploy rule'})[operation] || 'Azure operation';
 }

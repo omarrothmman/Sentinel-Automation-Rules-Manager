@@ -14,7 +14,10 @@
 
   <main id="onboarding" class="onboarding" hidden>
     <form id="setup-form" class="setup-panel">
-      <div class="setup-brand"><strong>Sentinel</strong><span>Rules and watchlists</span></div>
+      <div class="setup-brand">
+        <div><strong>Sentinel</strong><span>Rules and watchlists</span></div>
+        <button class="secondary theme-toggle" data-theme-toggle type="button">Dark mode</button>
+      </div>
       <h1 id="setup-title">Connect to Microsoft Azure</h1>
 
       <label>Authentication method
@@ -51,7 +54,10 @@
     <main>
       <header class="topbar">
         <h1 id="page-title">Overview</h1>
-        <button class="secondary" id="refresh" type="button">Refresh</button>
+        <div class="topbar-actions">
+          <button class="secondary theme-toggle" data-theme-toggle type="button">Dark mode</button>
+          <button class="secondary" id="refresh" type="button">Refresh</button>
+        </div>
       </header>
 
       <section class="view active" id="view-overview">
