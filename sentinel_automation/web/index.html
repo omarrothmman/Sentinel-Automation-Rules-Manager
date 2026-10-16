@@ -4,21 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="__CSRF_TOKEN__">
-  <title>Sentinel Manager</title>
+  <title>Sentinel Toolkit</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#page-title">Skip to content</a>
   <div id="notice" class="notice" role="status" hidden></div>
   <dialog id="error-dialog"><div class="error-dialog-body"><div class="panel-head"><h3>Error details</h3><button id="error-close" class="secondary" type="button">Close</button></div><div id="error-details"></div></div></dialog>
 
   <main id="onboarding" class="onboarding" hidden>
     <form id="setup-form" class="setup-panel">
       <div class="setup-brand">
-        <div><strong>Sentinel</strong><span>Rules and watchlists</span></div>
+        <div><strong>Sentinel Toolkit</strong><span>Rules and watchlists</span></div>
         <button class="secondary theme-toggle" data-theme-toggle type="button">Dark mode</button>
       </div>
       <h1 id="setup-title">Connect to Microsoft Azure</h1>
+      <p>Manage automation rules and watchlist rows across your Sentinel workspaces.</p>
 
       <label>Authentication method
         <select id="setup-auth" name="auth">
@@ -37,7 +39,8 @@
 
   <div class="shell" id="app-shell" hidden>
     <aside class="sidebar">
-      <div class="brand"><strong>Sentinel</strong><small>Rules and watchlists</small></div>
+      <div class="brand"><div><strong>Sentinel Toolkit</strong><small>Rules and watchlists</small></div></div>
+      <div class="nav-label">Workspace management</div>
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-view="overview">Overview</button>
         <button class="nav-item" data-view="rules">Automation rules</button>
@@ -51,9 +54,9 @@
       </div>
     </aside>
 
-    <main>
+    <main id="main-content">
       <header class="topbar">
-        <h1 id="page-title">Overview</h1>
+        <div><div class="eyebrow">Microsoft Sentinel <span aria-hidden="true">/</span> Management</div><h1 id="page-title" tabindex="-1">Overview</h1></div>
         <div class="topbar-actions">
           <button class="secondary theme-toggle" data-theme-toggle type="button">Dark mode</button>
           <button class="secondary" id="refresh" type="button">Refresh</button>
@@ -61,7 +64,7 @@
       </header>
 
       <section class="view active" id="view-overview">
-
+        <div class="page-intro"><div><h2>Your workspace at a glance</h2><p>Workspace coverage, saved plans, and applied operations.</p></div><button class="primary" data-go="changes" type="button">Plan a change <span aria-hidden="true">&rarr;</span></button></div>
         <div class="metrics">
           <article><small>Enabled workspaces</small><strong id="metric-workspaces">-</strong></article>
           <article><small>Catalog rules</small><strong id="metric-catalog">-</strong></article>
@@ -98,12 +101,7 @@
             <input id="rule-search" type="search" aria-label="Search rules" placeholder="Search rule name, ID, or workspace">
             <span id="rule-count" class="muted">Not loaded</span>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Rule</th><th>Workspace</th><th>Status</th><th>Trigger</th><th>Order</th></tr></thead>
-              <tbody id="rules-body"><tr><td colspan="5" class="empty">Choose a workspace and load its live rules.</td></tr></tbody>
-            </table>
-          </div>
+          <div id="rules-body" class="workspace-groups"><p class="empty">Choose a workspace and load its live rules.</p></div>
         </div>
       </section>
 
@@ -112,10 +110,10 @@
           <div class="toolbar"><select id="wl-target" aria-label="Watchlist workspace"></select><button id="wl-load" class="primary" type="button">Load watchlists</button></div>
         </div>
         <p id="wl-status" role="status" aria-live="polite" hidden></p>
-        <div id="wl-browser" class="panel table-panel"><div class="table-wrap"><table>
-          <thead><tr><th>Watchlist</th><th>Workspace</th><th>Search key</th><th>Action</th></tr></thead>
-          <tbody id="wl-lists"><tr><td colspan="4" class="empty">Load watchlists to begin.</td></tr></tbody>
-        </table></div></div>
+        <div id="wl-browser" class="panel table-panel">
+          <div class="table-tools"><input id="wl-list-search" type="search" aria-label="Search watchlists" placeholder="Search watchlist name, alias, or workspace"><span id="wl-list-count" class="muted">Not loaded</span></div>
+          <div id="wl-lists" class="workspace-groups"><p class="empty">Load watchlists to begin.</p></div>
+        </div>
         <section id="wl-content" hidden>
           <div class="section-intro"><div><h3 id="wl-title"></h3><p id="wl-count"></p></div>
             <div class="toolbar"><button id="wl-back" class="secondary" type="button">Back to watchlists</button><button id="wl-reload" class="secondary" type="button">Refresh rows</button><button id="wl-export" class="secondary" type="button">Export CSV</button><button id="wl-new" class="primary" type="button">Add row</button></div>
@@ -126,7 +124,7 @@
       </section>
 
       <section class="view" id="view-changes">
-
+        <div class="workflow-strip" aria-label="Change workflow"><span class="current">1. Configure</span><span>2. Review changes</span><span>3. Apply &amp; verify</span></div>
         <div class="change-choices">
           <button class="secondary" id="choose-rule-change" type="button" aria-pressed="true">Automation rule</button>
           <button class="secondary" id="choose-watchlist-change" type="button" aria-pressed="false">Watchlist</button>

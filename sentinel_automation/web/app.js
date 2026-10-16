@@ -136,7 +136,12 @@ function setBusy(button, busy, label = 'Working…') {
 function showView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(node => node.classList.toggle('active', node.id === `view-${name}`));
-  document.querySelectorAll('.nav-item').forEach(node => node.classList.toggle('active', node.dataset.view === name));
+  document.querySelectorAll('.nav-item').forEach(node => {
+    const active = node.dataset.view === name || (name === 'review' && node.dataset.view === 'changes');
+    node.classList.toggle('active', active);
+    if (active) node.setAttribute('aria-current', 'page');
+    else node.removeAttribute('aria-current');
+  });
   el('page-title').textContent = ({overview:'Overview', rules:'Automation rules', watchlists:'Watchlists', changes:'Plan a change', review:'Review changes', history:'Plans & runs'})[name];
 }
 
@@ -239,11 +244,41 @@ async function refreshCurrentPage() {
   } finally { setBusy(button, false); }
 }
 
+// Keep manual disclosure state separate from temporary search expansion.
+const workspaceExpansion = new Map();
+function renderWorkspaceGroups(containerId, rows, query, columns, rowMarkup, noun, scope, failures = []) {
+  const container = el(containerId);
+  const expanded = workspaceExpansion.get(containerId) || new Set();
+  if (container.dataset.searching !== 'true') {
+    container.querySelectorAll('details[data-workspace]').forEach(group => {
+      if (group.open) expanded.add(group.dataset.workspace);
+      else expanded.delete(group.dataset.workspace);
+    });
+  }
+  workspaceExpansion.set(containerId, expanded);
+  const groups = new Map();
+  const workspaces = (state.bootstrap?.workspaces || []).filter(w => w.enabled && (scope === 'all' || w.key === scope));
+  workspaces.forEach(w => groups.set(w.key, {name:w.display_name, rows:[], error:failures.find(f => f.workspace === w.key)?.error}));
+  rows.forEach((row, index) => {
+    if (!groups.has(row.workspace)) groups.set(row.workspace, {name:row.workspace_name || row.workspace, rows:[]});
+    groups.get(row.workspace).rows.push({row,index});
+  });
+  let matching = 0;
+  container.innerHTML = [...groups].map(([key, group]) => {
+    const workspaceMatch = [key, group.name].some(value => String(value).toLowerCase().includes(query));
+    const visible = group.rows.filter(({row}) => !query || workspaceMatch || [row.display_name, row.rule_id, row.alias].some(value => String(value || '').toLowerCase().includes(query)));
+    if (query && !workspaceMatch && !visible.length) return '';
+    matching += visible.length;
+    const label = query ? `${visible.length} of ${group.rows.length} ${noun}` : `${group.rows.length} ${noun}`;
+    return `<details class="workspace-group" data-workspace="${escapeHtml(key)}" ${query || expanded.has(key) ? 'open' : ''}><summary><span class="workspace-group-name"><strong>${escapeHtml(group.name)}</strong>${group.name !== key ? `<small>${escapeHtml(key)}</small>` : ''}</span><span class="workspace-group-count">${group.error ? 'Load failed' : label}</span></summary>${group.error ? `<p class="group-error">${escapeHtml(group.error)}</p>` : visible.length ? `<div class="table-wrap"><table><thead><tr>${columns.map(c => `<th scope="col">${c}</th>`).join('')}</tr></thead><tbody>${visible.map(({row,index}) => rowMarkup(row,index)).join('')}</tbody></table></div>` : `<p class="empty">No ${noun} in this workspace.</p>`}</details>`;
+  }).join('') || `<p class="empty">No matching ${noun} found.</p>`;
+  container.dataset.searching = String(!!query);
+  return matching;
+}
 function renderRules() {
   const query = el('rule-search').value.trim().toLowerCase();
-  const rows = state.rules.filter(rule => [rule.display_name, rule.rule_id, rule.workspace].some(value => String(value).toLowerCase().includes(query)));
-  el('rule-count').textContent = `${rows.length} of ${state.rules.length} rules`;
-  el('rules-body').innerHTML = rows.map(rule => `<tr><td><strong>${escapeHtml(rule.display_name)}</strong><small>${escapeHtml(rule.rule_id)}</small></td><td>${escapeHtml(rule.workspace)}</td><td><span class="state ${rule.enabled ? 'on':'off'}">${rule.enabled ? 'ENABLED':'DISABLED'}</span></td><td>${escapeHtml(rule.triggers_on || '—')} / ${escapeHtml(rule.triggers_when || '—')}</td><td>${escapeHtml(rule.order ?? '—')}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No matching rules found.</td></tr>';
+  const count = renderWorkspaceGroups('rules-body', state.rules, query, ['Rule','Status','Trigger','Order'], rule => `<tr><td><strong>${escapeHtml(rule.display_name)}</strong><small>${escapeHtml(rule.rule_id)}</small></td><td><span class="state ${rule.enabled ? 'on':'off'}">${rule.enabled ? 'ENABLED':'DISABLED'}</span></td><td>${escapeHtml(rule.triggers_on || '?')} / ${escapeHtml(rule.triggers_when || '?')}</td><td>${escapeHtml(rule.order ?? '?')}</td></tr>`, 'rules', state.ruleScope, state.ruleFailures);
+  el('rule-count').textContent = `${count} of ${state.rules.length} rules`;
 }
 
 async function loadRules() {
@@ -255,7 +290,9 @@ async function loadRules() {
 }
 
 async function fetchRules() {
-  const result = await api('/api/rules', {method:'POST', body:JSON.stringify({targets:el('rule-target').value})});
+  const scope = el('rule-target').value;
+  const result = await api('/api/rules', {method:'POST', body:JSON.stringify({targets:scope})});
+  state.ruleScope = scope; state.ruleFailures = result.failures;
   state.rules = result.rules; renderRules();
   if (result.failures.length) showErrors(result.failures.map(f => ({...f.error_info, message:f.error, workspace:f.workspace})));
   else notify(`${result.rules.length} live rules loaded from ${result.workspace_count} workspace(s).`);
@@ -422,11 +459,20 @@ async function wlBusy(button, action) {
   finally { setBusy(button, false); }
 }
 
+function wlRenderLists() {
+  const query = el('wl-list-search').value.trim().toLowerCase();
+  const count = renderWorkspaceGroups('wl-lists', wl.lists, query, ['Watchlist','Search key','Action'], (row,index) => `<tr><td><strong>${escapeHtml(row.display_name || row.alias)}</strong><small>${escapeHtml(row.alias)}</small></td><td>${escapeHtml(row.search_key)}</td><td><button class="secondary" data-wl-open="${index}" type="button">Open</button></td></tr>`, 'watchlists', wl.listScope, wl.listFailures);
+  el('wl-list-count').textContent = `${count} of ${wl.lists.length} watchlists`;
+}
+el('wl-list-search').addEventListener('input', () => { if (wl.listScope) wlRenderLists(); });
+
 async function wlLoadLists() {
   wlStatus('Loading watchlists…');
-  const result = await wlRequest({request:'list', targets:el('wl-target').value});
+  const scope = el('wl-target').value;
+  const result = await wlRequest({request:'list', targets:scope});
   wl.lists = result.watchlists;
-  el('wl-lists').innerHTML = wl.lists.map((row, index) => `<tr><td><strong>${escapeHtml(row.display_name)}</strong><small>${escapeHtml(row.alias)}</small></td><td>${escapeHtml(row.workspace)}</td><td>${escapeHtml(row.search_key)}</td><td><button class="secondary" data-wl-open="${index}">Open</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">No watchlists found.</td></tr>';
+  wl.listScope = scope; wl.listFailures = result.failures;
+  wlRenderLists();
   el('wl-browser').hidden = false; el('wl-content').hidden = true;
   wlStatus(result.failures.length ? result.failures.map(f => `${f.workspace}: ${f.error}`).join('; ') : `${wl.lists.length} watchlists loaded. Choose Open to view rows.`, result.failures.length > 0);
 }

@@ -171,7 +171,7 @@ class GuiTests(unittest.TestCase):
             index = response.read().decode("utf-8")
             self.assertEqual(response.status, 200)
             self.assertIn('content="test-session-token"', index)
-            self.assertIn("<title>Sentinel Manager</title>", index)
+            self.assertIn("<title>Sentinel Toolkit</title>", index)
             self.assertEqual(index.count("data-theme-toggle"), 2)
 
             connection.request("GET", "/app.js")

@@ -104,7 +104,7 @@ def claude_config_path() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Preview/install Sentinel MCP desktop configuration"
+        description="Preview/install Sentinel Toolkit MCP desktop configuration"
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--client", choices=("codex", "claude", "both"), default="both")

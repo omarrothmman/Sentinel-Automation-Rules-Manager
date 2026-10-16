@@ -1,4 +1,4 @@
-# Sentinel MCP for Codex and Claude Desktop
+# Sentinel Toolkit MCP for Codex and Claude Desktop
 
 The `sentinel-manager` MCP server uses the official Python MCP SDK over stdio. It runs locally,
 uses the same Azure identity and inventory as the GUI/CLI, and shares their saved plans and backups.
@@ -12,12 +12,12 @@ From the repository root:
 .\.venv\Scripts\python.exe -m pip install -e ".[mcp]"
 # Preview client entries without changing any client configuration:
 .\.venv\Scripts\python.exe -m sentinel_automation.mcp_config
-# Back up existing files and add Sentinel to both clients:
+# Back up existing files and add Sentinel Toolkit to both clients:
 .\.venv\Scripts\python.exe -m sentinel_automation.mcp_config --install --client both
 ```
 
 Use `--client codex` or `--client claude` for one client. Existing servers and other settings are
-preserved. Backups are written beside each config; an existing conflicting Sentinel entry is
+preserved. Backups are written beside each config; an existing conflicting Sentinel Toolkit entry is
 rejected instead of overwritten. The installer uses absolute Python and root paths, so it works
 regardless of the desktop client's current directory. Restart the client after installation.
 

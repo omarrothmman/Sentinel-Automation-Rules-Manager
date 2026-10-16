@@ -609,7 +609,7 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sentinel-auto-gui",
-        description="Authenticate and launch the Sentinel Automation Rules Manager locally.",
+        description="Authenticate and launch the Sentinel Toolkit locally.",
     )
     parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
     parser.add_argument("--state-dir", type=Path, default=DEFAULT_STATE_DIR)
@@ -643,7 +643,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         server = GuiServer(("127.0.0.1", args.port), service, secrets.token_urlsafe(32))
         url = f"http://127.0.0.1:{server.server_port}/"
-        print(f"Sentinel Automation Rules Manager: {url}")
+        print(f"Sentinel Toolkit: {url}")
         print("Complete Azure sign-in in the local GUI.")
         print("Press Ctrl+C to stop the local GUI.")
         if not args.no_browser:

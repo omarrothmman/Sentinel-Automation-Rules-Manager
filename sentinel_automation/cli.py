@@ -79,7 +79,7 @@ def _add_skip_missing(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sentinel-auto",
-        description="Safely manage Microsoft Sentinel automation rules across workspaces.",
+        description="Sentinel Toolkit: safely manage Microsoft Sentinel automation rules and watchlist rows across workspaces.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
