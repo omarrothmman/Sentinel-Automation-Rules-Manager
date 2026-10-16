@@ -23,7 +23,7 @@ class McpConfigTests(unittest.TestCase):
                 "-m",
                 "sentinel_automation.mcp_server",
                 "--root",
-                "C:\\tools\\Sentinel Manager",
+                "C:\\tools\\Sentinel Toolkit",
             ],
         }
 

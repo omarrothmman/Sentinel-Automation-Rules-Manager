@@ -1,4 +1,4 @@
-# Sentinel Automation Rules Manager
+# Sentinel Toolkit
 
 This repository contains a production-oriented CLI for modifying and deploying Microsoft
 Sentinel automation rules across subscriptions and tenants delegated through Azure Lighthouse.

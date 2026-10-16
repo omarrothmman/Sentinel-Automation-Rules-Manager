@@ -1,4 +1,4 @@
-# Microsoft Sentinel Automation Rules Manager
+# Sentinel Toolkit
 
 [![CI](https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/omarrothmman/Sentinel-Automation-Rules-Manager/actions/workflows/ci.yml)
 
@@ -143,6 +143,10 @@ Run `sentinel-auto --help` or add `--help` after any command for its exact synta
 **Planning details:** `--skip-missing` records absent rules as skipped; it does not ignore permission or Azure errors. `--condition-index` is 1-based when several conditions match. `--out PATH` chooses the plan file; otherwise plans go under `.sentinel-automation/plans/`. For catalog deployments, `--rules` accepts comma-separated logical names or `all`. For deployments, `--if-exists` defaults to `fail`; `skip` leaves an existing rule alone, and `update` plans to replace its complete definition.
 
 ## Watchlists (GUI and CLI)
+
+Automation rules and watchlists are grouped into collapsible workspace sections in the GUI.
+After loading, expand a workspace to see its items. Each heading shows an item count.
+Search opens matching sections temporarily; clearing the search restores the sections you opened.
 
 Open **Watchlists** in the browser interface, load a workspace's watchlists, and choose **Open**.
 Search the row table, select **Edit** or **Delete**, or choose **Add row**. **Import CSV** is available

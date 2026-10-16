@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sentinel-automation-rules"
 version = "1.6.0"
-description = "Safe content-as-code management for Microsoft Sentinel automation rules across Azure Lighthouse workspaces"
+description = "Sentinel Toolkit: manage Microsoft Sentinel automation rules and watchlist rows across Azure Lighthouse workspaces"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
