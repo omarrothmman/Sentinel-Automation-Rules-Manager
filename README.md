@@ -56,6 +56,21 @@ The GUI starts only on `127.0.0.1` and opens your browser. On first use, its set
 
 ## Common workflow
 
+### Create a rule in the GUI
+
+Open **Rule builder** to define a new automation rule. Configure its name, trigger,
+execution order, enabled state, property conditions, and ordered actions. The first
+builder supports playbooks (explicit Logic App resource and tenant IDs), severity,
+status/closure classification, tags, and incident tasks. Alert triggers support playbook
+actions and analytics-rule conditions only. New rules default to disabled.
+
+**Save rule to catalog** creates a reusable local definition without changing Azure.
+Then select target workspaces and choose **Preview deployment**. Review the before/after
+changes and type `APPLY` only when ready. Existing rules are never overwritten through
+this builder. You can leave a rule in the catalog and deploy it later using **Plan a
+change → Deploy from catalog**. Playbook and analytics-rule resource references are kept
+as entered; review them for each workspace before applying.
+
 First, create a plan. This example finds a rule by its exact display name and adds an incident title where needed:
 
 ```powershell
@@ -147,6 +162,8 @@ Run `sentinel-auto --help` or add `--help` after any command for its exact synta
 Automation rules and watchlists are grouped into collapsible workspace sections in the GUI.
 After loading, expand a workspace to see its items. Each heading shows an item count.
 Search opens matching sections temporarily; clearing the search restores the sections you opened.
+Choose **Edit rule** beside an automation rule to open the planner with its workspace and exact rule ID selected. Choose an operation, preview the changes, and review before applying.
+Choose **Add to catalog** to save a live rule locally under a reusable catalog name. Existing entries and duplicate rule IDs or display names are rejected. This does not change Azure; playbook resource references are retained as saved.
 
 Open **Watchlists** in the browser interface, load a workspace's watchlists, and choose **Open**.
 Search the row table, select **Edit** or **Delete**, or choose **Add row**. **Import CSV** is available

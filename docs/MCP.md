@@ -54,6 +54,19 @@ For later discovery use `discover_workspaces`, optionally with `save=true` to me
 
 ## Tools and write workflow
 
+Every change request follows **plan → review → ask permission → apply**. Even a request
+to deploy immediately first creates a local plan. The client calls `review_plan`, shows
+the deployment scope, status counts and before/after changes, then asks whether to apply
+that exact saved plan. Planning and review do not change Azure.
+
+`apply_changes` rejects plans that have not been reviewed in the current MCP server
+session. A changed plan needs another review and fresh user approval. After restarting
+the MCP server, review saved plans again. The review response includes an
+`approval_question`, `approval_required`, and `next_step` to guide the client. Users can
+approve naturally in chat; the client supplies the exact hash-bound phrase only after
+that approval. The server can enforce review order and plan integrity, but cannot verify
+that a human approved: the client must still pause and obtain consent.
+
 | Tools | Purpose |
 | --- | --- |
 | `sentinel_status`, `connect_azure` | Check configuration and connect |

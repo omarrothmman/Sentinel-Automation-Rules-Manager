@@ -72,6 +72,21 @@ class McpTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(plan.isError, plan.content)
             self.assertIn("Before:", plan.content[0].text)
             details = plan.structuredContent
+            self.assertTrue(details["approval_required"])
+            self.assertEqual(details["next_step"], "review_plan")
+            self.assertEqual(details["deployment_review"]["workspaces"], [self.target.key])
+            unreviewed = await session.call_tool(
+                "apply_changes",
+                {"plan_file": details["plan_file"], "approval_phrase": details["approval_phrase"]},
+            )
+            self.assertTrue(unreviewed.isError)
+            reviewed = await session.call_tool("review_plan", {"plan_file": details["plan_file"]})
+            self.assertFalse(reviewed.isError)
+            self.assertEqual(reviewed.structuredContent["next_step"], "await_user_approval")
+            self.assertIn("DEPLOYMENT REVIEW", reviewed.content[0].text)
+            self.assertIn("CHANGE SUMMARY", reviewed.content[0].text)
+            self.assertIn("BEFORE / AFTER", reviewed.content[0].text)
+            self.assertIn("Apply this saved plan", reviewed.content[0].text)
             rejected = await session.call_tool(
                 "apply_changes", {"plan_file": details["plan_file"], "approval_phrase": "APPLY"}
             )
@@ -115,6 +130,41 @@ class McpTests(unittest.IsolatedAsyncioTestCase):
         readonly = SentinelMcp(self.service, read_only=True)
         self.assertTrue(readonly.call(lambda: readonly.apply("test.json", "APPLY")).isError)
 
+    async def test_review_is_specific_to_plan_and_current_session(self):
+        def plan(note):
+            return self.adapter.planned(
+                self.service.watchlists(
+                    {
+                        "request": "plan",
+                        "targets": self.target.key,
+                        "alias": "AllowedIPs",
+                        "action": "update",
+                        "key_column": "IP",
+                        "key_value": "10.0.0.1",
+                        "values": {"Note": note},
+                    }
+                )
+            )
+
+        first = plan("first")
+        self.adapter.review(first["plan_file"])
+        second = plan("second")
+        denied = self.adapter.call(
+            lambda: self.adapter.apply(second["plan_file"], second["approval_phrase"])
+        )
+        self.assertTrue(denied.isError)
+        restarted = SentinelMcp(self.service)
+        denied = restarted.call(
+            lambda: restarted.apply(first["plan_file"], first["approval_phrase"])
+        )
+        self.assertTrue(denied.isError)
+        self.assertEqual(
+            self.client.list_watchlist_items(self.target, "AllowedIPs")[0]["properties"][
+                "itemsKeyValue"
+            ]["Note"],
+            "old",
+        )
+
     async def test_tool_schemas_and_rule_flow(self):
         rule_id = "00000000-0000-0000-0000-000000000001"
         self.service.client = FakeArmClient({(self.target.key, rule_id): resource(rule_id)})
@@ -133,6 +183,8 @@ class McpTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(planned.isError, planned.content)
         details = planned.structuredContent
+        reviewed = invoke("review_plan", plan_file=details["plan_file"])
+        self.assertFalse(reviewed.isError, reviewed.content)
         self.assertTrue(
             self.service.client.get_rule(self.target, rule_id)["properties"]["triggeringLogic"][
                 "isEnabled"

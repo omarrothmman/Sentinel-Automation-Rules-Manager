@@ -142,7 +142,7 @@ function showView(name) {
     if (active) node.setAttribute('aria-current', 'page');
     else node.removeAttribute('aria-current');
   });
-  el('page-title').textContent = ({overview:'Overview', rules:'Automation rules', watchlists:'Watchlists', changes:'Plan a change', review:'Review changes', history:'Plans & runs'})[name];
+  el('page-title').textContent = ({overview:'Overview', builder:'Rule builder', rules:'Automation rules', watchlists:'Watchlists', changes:'Plan a change', review:'Review changes', history:'Plans & runs'})[name];
 }
 
 function workspaceOptions(select) {
@@ -173,6 +173,7 @@ function renderBootstrap(data) {
   workspaceOptions(el('wl-target'));
   renderWlTargets();
   renderSourceWorkspaces();
+  if (typeof builderRenderTargets === 'function') builderRenderTargets();
   el('workspace-list').innerHTML = enabled.slice(0, 6).map(workspace => `<div class="workspace-row"><div class="row-main"><strong>${escapeHtml(workspace.display_name)}</strong><small>${escapeHtml(workspace.workspace_name)} · ${escapeHtml(workspace.resource_group)}</small></div>${workspace.tags.slice(0,1).map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}</div>`).join('') || '<div class="empty">No enabled workspaces.</div>';
   el('recent-runs').innerHTML = data.runs.slice(0, 5).map(run => runMarkup(run, false)).join('') || '<div class="empty">No applied runs yet.</div>';
   el('plans-list').innerHTML = data.plans.map(plan => `<div class="history-row"><div class="row-main"><strong>${escapeHtml(operationName(plan.operation))}</strong><small>${prettyTime(plan.created_at)} · ${plan.targets} targets</small></div></div>`).join('') || '<div class="empty">No plans generated yet.</div>';
@@ -277,9 +278,66 @@ function renderWorkspaceGroups(containerId, rows, query, columns, rowMarkup, nou
 }
 function renderRules() {
   const query = el('rule-search').value.trim().toLowerCase();
-  const count = renderWorkspaceGroups('rules-body', state.rules, query, ['Rule','Status','Trigger','Order'], rule => `<tr><td><strong>${escapeHtml(rule.display_name)}</strong><small>${escapeHtml(rule.rule_id)}</small></td><td><span class="state ${rule.enabled ? 'on':'off'}">${rule.enabled ? 'ENABLED':'DISABLED'}</span></td><td>${escapeHtml(rule.triggers_on || '?')} / ${escapeHtml(rule.triggers_when || '?')}</td><td>${escapeHtml(rule.order ?? '?')}</td></tr>`, 'rules', state.ruleScope, state.ruleFailures);
+  const count = renderWorkspaceGroups('rules-body', state.rules, query, ['Rule','Status','Trigger','Order','Action'], (rule,index) => `<tr><td><strong>${escapeHtml(rule.display_name)}</strong><small>${escapeHtml(rule.rule_id)}</small></td><td><span class="state ${rule.enabled ? 'on':'off'}">${rule.enabled ? 'ENABLED':'DISABLED'}</span></td><td>${escapeHtml(rule.triggers_on || '?')} / ${escapeHtml(rule.triggers_when || '?')}</td><td>${escapeHtml(rule.order ?? '?')}</td><td><button class="secondary" type="button" data-rule-edit="${index}" aria-label="${escapeHtml(`Edit rule ${rule.display_name}`)}">Edit rule</button> <button class="secondary" type="button" data-rule-catalog="${index}">Add to catalog</button></td></tr>`, 'rules', state.ruleScope, state.ruleFailures);
   el('rule-count').textContent = `${count} of ${state.rules.length} rules`;
 }
+
+let catalogSource = null;
+el('rules-body').addEventListener('click', event => {
+  const button = event.target.closest('[data-rule-catalog]');
+  if (!button) return;
+  catalogSource = state.rules[Number(button.dataset.ruleCatalog)];
+  el('catalog-source').textContent = `${catalogSource.display_name} in ${catalogSource.workspace}`;
+  el('catalog-name').value = catalogSource.display_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  el('catalog-error').hidden = true;
+  el('catalog-dialog').showModal();
+  el('catalog-name').focus();
+});
+el('catalog-cancel').addEventListener('click', () => el('catalog-dialog').close());
+el('catalog-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = el('catalog-save'); setBusy(button, true, 'Saving?');
+  el('catalog-error').hidden = true;
+  try {
+    const result = await api('/api/catalog/add', {method:'POST', body:JSON.stringify({workspace:catalogSource.workspace, rule_id:catalogSource.rule_id, name:el('catalog-name').value})});
+    el('catalog-dialog').close();
+    notify(`Saved ${result.name} to the local catalog.`);
+    await refresh();
+  } catch (error) { el('catalog-error').textContent = error.message; el('catalog-error').hidden = false; }
+  finally { setBusy(button, false); }
+});
+
+const catalogOperationGroup = el('operation').querySelector('optgroup[label="Deployment"]');
+function setRuleEditMode(editing) {
+  state.editingRule = editing;
+  if (editing) catalogOperationGroup.remove();
+  else if (!catalogOperationGroup.isConnected) el('operation').append(catalogOperationGroup);
+}
+
+function editRule(index) {
+  const rule = state.rules[index];
+  if (!rule) return;
+  chooseChangeKind('rule');
+  setRuleEditMode(true);
+  el('plan-form').reset();
+  el('operation').value = '';
+  updatePlanFields();
+  el('plan-target').value = rule.workspace;
+  el('selector-type').value = 'rule_id';
+  el('selector-type').dispatchEvent(new Event('change'));
+  document.querySelector('[name="selector_value"]').value = rule.rule_id;
+  el('plan-form').elements.skip_missing.checked = false;
+  const context = el('rule-edit-context');
+  context.textContent = `Editing ${rule.display_name} in ${rule.workspace}. Choose an operation below, then preview your changes.`;
+  context.hidden = false;
+  showView('changes');
+  el('page-title').scrollIntoView({block:'start'});
+  el('operation').focus({preventScroll:true});
+}
+el('rules-body').addEventListener('click', event => {
+  const button = event.target.closest('[data-rule-edit]');
+  if (button) editRule(Number(button.dataset.ruleEdit));
+});
 
 async function loadRules() {
   const button = el('load-rules'); setBusy(button, true, 'Loading…');
@@ -300,6 +358,10 @@ async function fetchRules() {
 
 function updatePlanFields() {
   const operation = el('operation').value;
+  if (state.editingRule && operation === 'deploy-catalog') {
+    el('operation').value = '';
+    return updatePlanFields();
+  }
   const dynamic = el('dynamic-fields');
   const catalog = operation === 'deploy-catalog';
   el('selector-fields').hidden = catalog; el('skip-row').hidden = catalog;
@@ -312,7 +374,17 @@ function updatePlanFields() {
     'remove-condition':'<label>Property<input name="property" required placeholder="IncidentSeverity"></label><label>Operator (optional)<input name="operator" placeholder="Equals"></label><label>Condition index (optional)<input name="condition_index" type="number" min="1"></label>',
     'deploy-catalog':`<label class="full">Catalog rules<select name="catalog_rules"><option value="all">All catalog rules</option>${(state.bootstrap?.catalog || []).map(rule => `<option value="${escapeHtml(rule.logical_name)}">${escapeHtml(rule.display_name)}</option>`).join('')}</select></label><label>When rule exists<select name="if_exists"><option value="fail">Stop on difference</option><option value="skip">Skip existing</option><option value="update">Update existing</option></select></label>`
   };
-  dynamic.innerHTML = fields[operation];
+  const help = {
+    'add-title':'Add a value to an existing incident-title condition. To create a condition, choose Add a condition.',
+    'remove-title':'Remove one value from an existing incident-title condition. To remove the whole condition, choose Remove a condition.',
+    'set-enabled':'Change whether the selected automation rule is enabled.',
+    'add-condition':'Add a property condition to the selected rule. Existing actions and other conditions are preserved.',
+    'remove-condition':'Remove a matching property condition. If several match, specify its condition index.',
+    'deploy-catalog':'Deploy a saved catalog rule. Review the full definition before choosing to update an existing rule.'
+  };
+  el('operation-help').textContent = help[operation] || 'Choose an operation to see its settings. Every change is previewed before it is applied.';
+  dynamic.innerHTML = fields[operation] || '';
+  el('plan-form').querySelector('button[type="submit"]').disabled = !operation;
 }
 
 function formPayload(form) {
@@ -339,7 +411,7 @@ function renderPlan(result, source = 'changes') {
   el('preview-operation').textContent = isWatchlist ? 'Watchlist row changes' : 'Automation rule changes';
   el('preview-integrity').textContent = `${changes} changes · ${new Set(plan.targets.map(t => t.workspace.key)).size} workspaces`;
 
-  el('review-back').textContent = source === 'history' ? 'Back to plans & runs' : 'Back to editor';
+  el('review-back').textContent = source === 'history' ? 'Back to plans & runs' : source === 'builder' ? 'Back to rule builder' : 'Back to editor';
   el('preview-summary').innerHTML = plan.targets.map(target => `<div class="plan-row"><div><strong>${escapeHtml(target.display_name || target.rule_id || 'Missing rule')}</strong><small>${escapeHtml(target.workspace.key)} · ${escapeHtml(target.summary)}</small></div><span class="plan-status ${escapeHtml(target.status)}">${escapeHtml(target.status.replaceAll('_',' '))}</span></div>`).join('');
   el('apply-confirmation').value = '';
   el('apply-plan').disabled = changes === 0;
@@ -393,7 +465,17 @@ async function rollback() {
 }
 
 document.addEventListener('click', event => {
-  const nav = event.target.closest('[data-view],[data-go]'); if (nav) showView(nav.dataset.view || nav.dataset.go);
+  const nav = event.target.closest('[data-view],[data-go]');
+  if (nav) {
+    const view = nav.dataset.view || nav.dataset.go;
+    if (view === 'changes' && state.editingRule) {
+      setRuleEditMode(false);
+      el('plan-form').reset();
+      el('rule-edit-context').hidden = true;
+      updatePlanFields();
+    }
+    showView(view);
+  }
   const rollbackButton = event.target.closest('.rollback');
   if (rollbackButton) { state.rollbackRun = rollbackButton.dataset.run; el('rollback-confirmation').value=''; el('rollback-force').checked=false; el('rollback-dialog').showModal(); }
 });
@@ -401,6 +483,9 @@ el('review-back').addEventListener('click', () => showView(state.reviewSource));
 el('choose-rule-change').addEventListener('click', () => chooseChangeKind('rule'));
 el('choose-watchlist-change').addEventListener('click', () => chooseChangeKind('watchlist'));
 el('refresh').addEventListener('click', refreshCurrentPage); el('load-rules').addEventListener('click', loadRules); el('rule-search').addEventListener('input', renderRules);
+el('plan-target').addEventListener('change', () => el('rule-edit-context').hidden = true);
+document.querySelector('[name="selector_value"]').addEventListener('input', () => el('rule-edit-context').hidden = true);
+el('selector-type').addEventListener('change', () => el('rule-edit-context').hidden = true);
 el('operation').addEventListener('change', updatePlanFields); el('selector-type').addEventListener('change', event => { const input = document.querySelector('[name="selector_value"]'); const byName = event.target.value === 'display_name'; el('selector-value-label').childNodes[0].textContent = byName ? 'Rule display name' : 'Rule ID'; input.placeholder = byName ? 'Close Known Benign Incidents' : '00000000-0000-0000-0000-000000000000'; });
 el('plan-form').addEventListener('submit', createPlan); el('apply-plan').addEventListener('click', applyPlan); el('confirm-rollback').addEventListener('click', rollback);
 el('setup-form').addEventListener('submit', setup);
