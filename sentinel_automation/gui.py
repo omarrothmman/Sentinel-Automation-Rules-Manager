@@ -4,7 +4,9 @@ import argparse
 import functools
 import json
 import secrets
+import tempfile
 import threading
+import uuid
 import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -17,7 +19,8 @@ from urllib.parse import urlsplit
 from . import watchlists
 from .auth import create_credential
 from .azure import DEFAULT_API_VERSION, ArmClient
-from .catalog import load_catalog, select_catalog_rules
+from .builder import validate_builder_rule
+from .catalog import add_catalog_rule, load_catalog, select_catalog_rules
 from .cli import _validate_plan_scope
 from .discovery import discover_sentinel_workspaces, inventory_document
 from .errors import ConfigurationError, SentinelAutomationError, present_errors
@@ -34,6 +37,7 @@ from .rules import (
     RuleSelector,
     add_condition,
     add_property_value,
+    discover_rule,
     remove_condition,
     remove_property_value,
     set_enabled,
@@ -233,6 +237,55 @@ class GuiService:
             )
         )
         return {"rules": rows, "failures": failures, "workspace_count": len(workspaces)}
+
+    def add_rule_to_catalog(self, payload: dict[str, Any]) -> dict[str, Any]:
+        client = self._require_client()
+        key = _required_string(payload.get("workspace"), "Workspace")
+        workspace = next((w for w in self._require_inventory().workspaces if w.key == key), None)
+        if workspace is None or not workspace.enabled:
+            raise ConfigurationError("Choose one enabled workspace")
+        rule_id = _required_string(payload.get("rule_id"), "Rule ID")
+        name = _required_string(payload.get("name"), "Catalog name")
+        with self._lock:
+            resource = discover_rule(client, workspace, RuleSelector(rule_id=rule_id))
+            with tempfile.TemporaryDirectory() as temporary:
+                source = Path(temporary) / "rule.json"
+                atomic_write_json(source, resource)
+                rule = add_catalog_rule(self.config.catalog_dir, source, name)
+        return {
+            "name": rule.logical_name,
+            "display_name": rule.display_name,
+            "path": str(rule.path),
+        }
+
+    def create_catalog_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
+        name = _required_string(payload.get("name"), "Catalog name")
+        properties = validate_builder_rule(payload.get("properties"))
+        with self._lock, tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "rule.json"
+            atomic_write_json(source, {"rule_id": str(uuid.uuid4()), "properties": properties})
+            rule = add_catalog_rule(self.config.catalog_dir, source, name)
+        return {"name": rule.logical_name, "rule_id": rule.rule_id, "properties": rule.properties}
+
+    def plan_catalog_assignment(self, payload: dict[str, Any]) -> dict[str, Any]:
+        keys = payload.get("workspaces")
+        if not isinstance(keys, list) or not keys or any(not isinstance(k, str) for k in keys):
+            raise ConfigurationError("Select at least one workspace")
+        inventory = self._require_inventory()
+        by_key = {w.key: w for w in inventory.workspaces if w.enabled}
+        if any(key not in by_key for key in keys):
+            raise ConfigurationError("Choose enabled workspace keys from the inventory")
+        name = _required_string(payload.get("name"), "Catalog name")
+        rules = [r for r in load_catalog(self.config.catalog_dir) if r.logical_name == name]
+        if len(rules) != 1:
+            raise ConfigurationError("Saved catalog rule was not found")
+        with self._lock:
+            plan = build_catalog_deployment_plan(
+                self._require_client(), [by_key[k] for k in dict.fromkeys(keys)], rules, "fail"
+            )
+            filename = f"{timestamp_id()}-builder-{uuid.uuid4().hex[:6]}.json"
+            sealed = save_plan(plan, self.config.state_dir / "plans" / filename)
+        return {"plan": sealed, "plan_file": filename}
 
     def create_plan(self, payload: dict[str, Any]) -> dict[str, Any]:
         client = self._require_client()
@@ -504,7 +557,12 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/bootstrap":
             self._api(self.server.service.bootstrap)
             return
-        static = {"/": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
+        static = {
+            "/": "index.html",
+            "/app.js": "app.js",
+            "/builder.js": "builder.js",
+            "/styles.css": "styles.css",
+        }
         filename = static.get(path)
         if filename is None:
             self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
@@ -547,6 +605,9 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         routes: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "/api/setup": self.server.service.setup,
             "/api/rules": self.server.service.list_rules,
+            "/api/catalog/add": self.server.service.add_rule_to_catalog,
+            "/api/builder/save": self.server.service.create_catalog_rule,
+            "/api/builder/plan": self.server.service.plan_catalog_assignment,
             "/api/watchlists": self.server.service.watchlists,
             "/api/plan": self.server.service.open_plan,
             "/api/plans": self.server.service.create_plan,

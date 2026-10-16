@@ -55,6 +55,54 @@ class GuiTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_add_live_rule_to_catalog_rejects_duplicates_without_changing_azure(self):
+        from sentinel_automation.catalog import load_catalog
+
+        before = self.client.get_rule(self.target, self.rule_id)
+        payload = {"workspace": self.target.key, "rule_id": self.rule_id, "name": "My rule"}
+        result = self.service.add_rule_to_catalog(payload)
+        self.assertEqual(result["name"], "my-rule")
+        self.assertEqual(load_catalog(self.catalog_dir)[0].rule_id, self.rule_id)
+        with self.assertRaises(ConfigurationError):
+            self.service.add_rule_to_catalog(payload)
+        with self.assertRaises(ConfigurationError):
+            self.service.add_rule_to_catalog({**payload, "name": "another-name"})
+        self.assertEqual(len(load_catalog(self.catalog_dir)), 1)
+        self.assertEqual(self.client.get_rule(self.target, self.rule_id), before)
+
+    def test_builder_save_plan_apply_and_rollback(self):
+        from sentinel_automation.catalog import load_catalog
+        from sentinel_automation.plans import apply_plan, rollback_run
+
+        properties = sample_properties()
+        properties["displayName"] = "New reusable rule"
+        properties["actions"] = [
+            {
+                "order": 1,
+                "actionType": "ModifyProperties",
+                "actionConfiguration": {"severity": "High"},
+            }
+        ]
+        saved = self.service.create_catalog_rule({"name": "new-rule", "properties": properties})
+        self.assertIsNone(self.client.get_rule(self.target, saved["rule_id"]))
+        self.assertEqual(load_catalog(self.catalog_dir)[0].rule_id, saved["rule_id"])
+        with self.assertRaises(ConfigurationError):
+            self.service.create_catalog_rule({"name": "new-rule", "properties": properties})
+        with self.assertRaises(ConfigurationError):
+            self.service.plan_catalog_assignment({"name": "new-rule", "workspaces": []})
+        with self.assertRaises(ConfigurationError):
+            self.service.plan_catalog_assignment({"name": "new-rule", "workspaces": ["all"]})
+        planned = self.service.plan_catalog_assignment(
+            {"name": "new-rule", "workspaces": [self.target.key]}
+        )
+        self.assertEqual(planned["plan"]["targets"][0]["status"], "create")
+        self.assertIsNone(self.client.get_rule(self.target, saved["rule_id"]))
+        run_id, report = apply_plan(self.client, planned["plan"], self.state_dir)
+        self.assertTrue(report["successful"])
+        self.assertIsNotNone(self.client.get_rule(self.target, saved["rule_id"]))
+        self.assertTrue(rollback_run(self.client, self.state_dir, run_id)["successful"])
+        self.assertIsNone(self.client.get_rule(self.target, saved["rule_id"]))
+
     def test_gui_parser_does_not_change_cli_parser(self) -> None:
         args = build_parser().parse_args(
             [

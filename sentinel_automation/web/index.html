@@ -7,6 +7,7 @@
   <title>Sentinel Toolkit</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
+  <script src="/builder.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#page-title">Skip to content</a>
@@ -44,6 +45,7 @@
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-view="overview">Overview</button>
         <button class="nav-item" data-view="rules">Automation rules</button>
+        <button class="nav-item" data-view="builder">Rule builder</button>
         <button class="nav-item" data-view="watchlists">Watchlists</button>
         <button class="nav-item" data-view="changes">Plan a change</button>
         <button class="nav-item" data-view="history">Plans &amp; runs</button>
@@ -123,6 +125,39 @@
         </section>
       </section>
 
+      <section class="view" id="view-builder">
+        <div class="page-intro"><div><h2>Create an automation rule</h2><p>Build a reusable rule, save it locally, then choose where to deploy it.</p></div></div>
+        <div class="workflow-strip"><span>1. Define rule</span><span>2. Save to catalog</span><span>3. Select workspaces &amp; review</span></div>
+        <form id="builder-form" class="panel form-panel">
+          <fieldset id="builder-definition" class="builder-definition">
+            <legend>Rule definition</legend>
+            <div class="form-grid">
+              <label>Rule name<input id="builder-name" required maxlength="500" placeholder="Triage high-severity incidents"></label>
+              <label>Catalog name<input id="builder-catalog" required maxlength="120" placeholder="triage-high-severity"></label>
+              <label>Trigger<select id="builder-trigger"><option value="Incidents:Created">When an incident is created</option><option value="Incidents:Updated">When an incident is updated</option><option value="Alerts:Created">When an alert is created</option></select></label>
+              <label>Execution order<input id="builder-order" type="number" min="1" max="1000" value="1" required></label>
+              <label>Initial state<select id="builder-enabled"><option value="false">Disabled</option><option value="true">Enabled</option></select></label>
+            </div>
+            <div class="panel-head"><h3>Conditions</h3><button id="builder-add-condition" class="secondary" type="button">Add condition</button></div>
+            <p class="operation-help">All conditions must match. Values within a condition are alternatives. No conditions means all incidents or alerts for the selected trigger. Analytics-rule conditions use full resource IDs.</p>
+            <div id="builder-conditions" class="builder-rows"></div>
+            <div class="panel-head"><h3>Actions, in execution order</h3><button id="builder-add-action" class="secondary" type="button">Add action</button></div>
+            <p class="operation-help">Playbooks require their full Logic App resource ID and tenant ID. References stay the same in every target workspace; Azure permissions and trigger compatibility are checked by Azure when applying.</p>
+            <div id="builder-actions" class="builder-rows"></div>
+          </fieldset>
+          <p id="builder-error" class="error-message" role="alert" hidden></p>
+          <div class="dialog-actions"><button id="builder-save" class="primary" type="submit">Save rule to catalog</button></div>
+        </form>
+        <section id="builder-assignment" class="panel form-panel" hidden aria-labelledby="builder-saved-title">
+          <h3 id="builder-saved-title">Rule saved to catalog</h3><p id="builder-saved" role="status"></p>
+          <p class="operation-help">Select any enabled workspaces below. Preview creates a deployment plan; nothing is written to Azure until you review and apply. Existing rules are never overwritten by this builder.</p>
+          <label>Search workspaces<input id="builder-workspace-search" type="search" placeholder="Search by name or key"></label>
+          <div id="builder-workspaces" class="builder-workspaces"></div>
+          <p id="builder-selection-count" class="operation-help" aria-live="polite"></p>
+          <div class="actions"><button id="builder-preview" class="primary" type="button" disabled>Preview deployment</button><button id="builder-new" class="secondary" type="button">Create another rule</button></div>
+        </section>
+      </section>
+
       <section class="view" id="view-changes">
         <div class="workflow-strip" aria-label="Change workflow"><span class="current">1. Configure</span><span>2. Review changes</span><span>3. Apply &amp; verify</span></div>
         <div class="change-choices">
@@ -131,9 +166,18 @@
         </div>
         <div class="change-editor">
           <form id="plan-form" class="panel form-panel">
+            <p id="rule-edit-context" class="rule-edit-context" role="status" hidden></p>
 
             <div class="step-label"><span>1</span><strong>Choose the operation</strong></div>
-            <label>Operation<select name="operation" id="operation"><option value="add-title">Add incident title</option><option value="remove-title">Remove incident title</option><option value="set-enabled">Enable or disable rule</option><option value="add-condition">Add condition</option><option value="remove-condition">Remove condition</option><option value="deploy-catalog">Deploy from catalog</option></select></label>
+            <label>What would you like to change?
+              <select name="operation" id="operation" required aria-describedby="operation-help">
+                <option value="">Choose an operation</option>
+                <optgroup label="Rule state"><option value="set-enabled">Enable or disable rule</option></optgroup>
+                <optgroup label="Conditions"><option value="add-condition">Add a condition</option><option value="remove-condition">Remove a condition</option><option value="add-title">Add a value to an incident-title condition</option><option value="remove-title">Remove a value from an incident-title condition</option></optgroup>
+                <optgroup label="Deployment"><option value="deploy-catalog">Deploy from catalog</option></optgroup>
+              </select>
+            </label>
+            <p id="operation-help" class="operation-help">Choose an operation to see its settings. Every change is previewed before it is applied.</p>
             <div class="step-label"><span>2</span><strong>Select scope and rule</strong></div>
             <label>Target workspaces<select name="targets" id="plan-target"><option value="all">All enabled workspaces</option></select></label>
             <div id="selector-fields">
@@ -213,6 +257,16 @@
       </section>
     </main>
   </div>
+  <dialog id="catalog-dialog" aria-labelledby="catalog-title">
+    <form id="catalog-form">
+      <h3 id="catalog-title">Add rule to catalog</h3>
+      <p id="catalog-source"></p>
+      <label>Catalog name<input id="catalog-name" required maxlength="120" autocomplete="off" aria-describedby="catalog-help"></label>
+      <p id="catalog-help">Saves the current Azure rule definition locally for reuse. Existing catalog entries will not be overwritten. Playbook references retain their original resource IDs.</p>
+      <p id="catalog-error" class="error-message" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="catalog-cancel" class="secondary" type="button">Cancel</button><button id="catalog-save" class="primary" type="submit">Save to catalog</button></div>
+    </form>
+  </dialog>
   <dialog id="rollback-dialog">
     <form method="dialog">
       <button class="dialog-close" value="cancel" aria-label="Close">Close</button>
