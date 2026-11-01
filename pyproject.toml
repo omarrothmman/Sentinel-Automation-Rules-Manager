@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.26,<2", "tomli>=2; python_version < '3.11'"]
+mcp = ["mcp>=1.26,<3", "tomli>=2; python_version < '3.11'"]
 dev = [
     "build>=1.2,<2",
     "ruff>=0.12,<1",
